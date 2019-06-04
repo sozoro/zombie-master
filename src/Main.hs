@@ -33,7 +33,8 @@ modifyL f (x, y) m = M.matrix (M.nrows m) (M.ncols m) $ \(r,c) ->
   maybe (M.unsafeGet r c m) id $ guard (r == x) >> ls `safeIx` (fixedY - c)
   where
     fixedY = if y > M.nrows m then M.nrows m else y
-    ls     = f $ map (\y' -> M.unsafeGet x y' m) $ enumToFrom fixedY 1
+    ls     = f $ catMaybes $ map (\y' -> M.safeGet x y' m)
+                           $ enumToFrom fixedY 1
 
 enumToFrom :: Enum a => a -> a -> [a]
 enumToFrom a = enumFromThenTo a $ pred a
