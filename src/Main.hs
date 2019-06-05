@@ -48,8 +48,8 @@ cyclicToEnum :: forall a. (Enum a, Bounded a) => Int -> a
 cyclicToEnum i = toEnum $ i `mod` length ([minBound .. maxBound :: a])
 
 modifyL :: Monad m
-        => ([a] -> m [a]) -> (Int, Int) -> StateT (M.Matrix a) m ()
-modifyL f (x, y) = do
+        => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
+modifyL x y f = do
   m  <- get
   let fixed = downer (M.nrows m) y
   ls <- lift $ f $ catMaybes $ map (\y' -> M.safeGet x y' m)
@@ -59,8 +59,8 @@ modifyL f (x, y) = do
     $ guard (r == x) >> ls `safeIx` (fixed - c)
 
 modifyU :: Monad m
-        => ([a] -> m [a]) -> (Int, Int) -> StateT (M.Matrix a) m ()
-modifyU f (x, y) = do
+        => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
+modifyU x y f = do
   m  <- get
   let fixed = downer (M.ncols m) x
   ls <- lift $ f $ catMaybes $ map (\x' -> M.safeGet x' y m)
@@ -70,8 +70,8 @@ modifyU f (x, y) = do
     $ guard (c == y) >> ls `safeIx` (fixed - r)
 
 modifyR :: Monad m
-        => ([a] -> m [a]) -> (Int, Int) -> StateT (M.Matrix a) m ()
-modifyR f (x, y) = do
+        => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
+modifyR x y f = do
   m  <- get
   let fixed = upper 1 y
   ls <- lift $ f $ catMaybes $ map (\y' -> M.safeGet x y' m)
@@ -81,8 +81,8 @@ modifyR f (x, y) = do
     $ guard (r == x) >> ls `safeIx` (c -fixed)
 
 modifyD :: Monad m
-        => ([a] -> m [a]) -> (Int, Int) -> StateT (M.Matrix a) m ()
-modifyD f (x, y) = do
+        => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
+modifyD x y f = do
   m  <- get
   let fixed = upper 1 x
   ls <- lift $ f $ catMaybes $ map (\x' -> M.safeGet x' y m)
@@ -92,12 +92,20 @@ modifyD f (x, y) = do
     $ guard (c == y) >> ls `safeIx` (r -fixed)
 
 modifyLURD :: Monad m
-           => ([a] -> m [a]) -> (Int, Int) -> StateT (M.Matrix a) m ()
-modifyLURD f xy = do
-  modifyL f xy
-  modifyU f xy
-  modifyR f xy
-  modifyD f xy
+           => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
+modifyLURD y x f = do
+  modifyL y x f
+  modifyU y x f
+  modifyR y x f
+  modifyD y x f
+
+modifyTo :: Monad m
+         => Clockwise -> Int -> Int -> ([a] -> m [a])
+         -> StateT (M.Matrix a) m ()
+modifyTo L = modifyL
+modifyTo U = modifyU
+modifyTo R = modifyR
+modifyTo D = modifyD
 
 downer :: Ord a => a -> a -> a
 downer a b = if a <= b then a else b
@@ -110,14 +118,6 @@ enumToFrom a = enumFromThenTo a $ pred a
 
 safeIx :: [a] -> Int -> Maybe a
 safeIx ls i = guard (i >= 0) >> listToMaybe (drop i ls)
-
-_4x4 :: M.Matrix Clockwise
-_4x4 = M.fromList 4 4 $ iterate cyclicSucc L
-
-f :: [Clockwise] -> IO [Clockwise]
-f ls = do
-  print ls
-  return $ fmap cyclicSucc ls
 
 printState :: (MonadIO m, Show r) => StateT r m ()
 printState = get >>= liftIO . print
@@ -142,13 +142,56 @@ initialMatrix r c = do
       row = fill Empty 1 c
   left  <- randomCol (r - 2) Blue
   right <- randomCol (r - 2) Red
-  let gu = col M.<|> left
-             M.<|> fill Empty (r - 2) (c - 4)
+  let gu = col M.<|> left  M.<|> fill Empty (r - 2) (c - 4)
                M.<|> right M.<|> col
-  return $ row M.<-> gu M.<-> row
+  return $ row M.<-> gu    M.<-> row
+
+forward :: (Int, Int) -> Clockwise -> (Int, Int)
+forward (y, x) L = (     y, pred x)
+forward (y, x) U = (pred y,      x)
+forward (y, x) R = (     y, succ x)
+forward (y, x) D = (succ y,      x)
+
+data CellStatus
+  = IsOutOfTheField
+  | IsEmpty
+  | IsZombie ZombieStatus
+  deriving (Typeable, Show, Eq)
+instance E.Exception CellStatus where
+
+data ZombieStatus
+  = Forwardable Player Clockwise
+  | DeadLocked  Player Clockwise
+  deriving (Typeable, Show, Eq)
+instance E.Exception ZombieStatus where
+
+checkZombie :: Monad m
+            => Int -> Int -> StateT (M.Matrix Zombie) m CellStatus
+checkZombie y x = get >>= \m -> return $ checkZombie' m y x
+
+checkZombie' :: M.Matrix Zombie -> Int -> Int -> CellStatus
+checkZombie' m y x =
+  flip (maybe IsOutOfTheField) (M.safeGet y x m) $ \case
+    Empty      -> IsEmpty
+    Zombie p d -> IsZombie $
+      let front = uncurry (checkZombie' m) $ (y, x) `forward` d in
+      if front == IsEmpty then Forwardable p d
+                          else DeadLocked  p d
+
+advanceZombie :: MonadIO m
+              => Int -> Int -> StateT (M.Matrix Zombie) m ()
+advanceZombie y x = checkZombie y x >>= \case
+  IsZombie (Forwardable p d) -> modifyTo d y x $ \case
+                                (z:e:xs) -> return (e:z:xs)
+                                _        -> return []
+  err                        -> liftIO $ print err
 
 main :: IO ()
-main = initialMatrix 10 10 >>= evalStateT (do
-  -- modifyLURD f (2,2)
+main = initialMatrix 10 10 >>= evalStateT (forever $ do
   printState
+  line <- liftIO $ getLine
+  let mayYX = listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
+  flip (maybe $ liftIO $ putStrLn "(y,x)") mayYX $ \(y,x) -> do
+    advanceZombie y x
+    printState
   )
