@@ -78,7 +78,7 @@ modifyR x y f = do
                              $ enumFromTo fixed (M.nrows m)
   put $ M.matrix (M.nrows m) (M.ncols m) $ \(r,c) ->
     maybe (M.unsafeGet r c m) id
-    $ guard (r == x) >> ls `safeIx` (c -fixed)
+    $ guard (r == x) >> ls `safeIx` (c - fixed)
 
 modifyD :: Monad m
         => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
@@ -89,7 +89,7 @@ modifyD x y f = do
                              $ enumFromTo fixed (M.ncols m)
   put $ M.matrix (M.nrows m) (M.ncols m) $ \(r,c) ->
     maybe (M.unsafeGet r c m) id
-    $ guard (c == y) >> ls `safeIx` (r -fixed)
+    $ guard (c == y) >> ls `safeIx` (r - fixed)
 
 modifyLURD :: Monad m
            => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
@@ -181,17 +181,42 @@ checkZombie' m y x =
 advanceZombie :: MonadIO m
               => Int -> Int -> StateT (M.Matrix Zombie) m ()
 advanceZombie y x = checkZombie y x >>= \case
-  IsZombie (Forwardable p d) -> modifyTo d y x $ \case
-                                (z:e:xs) -> return (e:z:xs)
-                                _        -> return []
-  err                        -> liftIO $ print err
+  IsZombie (Forwardable p d) -> do
+           modifyTo d y x $ \case
+             (z:e:xs) -> return (e:z:xs)
+             _        -> return []
+           uncurry rule $ (y, x) `forward` d
+  err -> liftIO $ print err
+
+isZombie :: Zombie -> Bool
+isZombie (Zombie _ _) = True
+isZombie _            = False
+
+isEnemyOf :: Zombie -> Zombie -> Bool
+isEnemyOf (Zombie p _) (Zombie p' _) = p /= p'
+isEnemyOf _            _             = False
+
+turnZombie :: Zombie -> Zombie
+turnZombie (Zombie p d) = Zombie p (cyclicSucc d)
+turnZombie z            = z
+
+mapHead :: (a -> a) -> [a] -> [a]
+mapHead _ []     = []
+mapHead f (x:xs) = f x : xs
+
+rule :: Monad m
+     => Int -> Int -> StateT (M.Matrix Zombie) m ()
+rule y x = modifyLURD y x $ \case
+  (x@(Zombie _ _):xs) -> let (space, remaining) = break isZombie xs
+                             f y = if x `isEnemyOf` y then turnZombie y else y
+                         in return $ x : (space ++ mapHead f remaining)
+  _ -> return []
 
 main :: IO ()
 main = initialMatrix 10 10 >>= evalStateT (forever $ do
   printState
   line <- liftIO $ getLine
-  let mayYX = listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
-  flip (maybe $ liftIO $ putStrLn "(y,x)") mayYX $ \(y,x) -> do
-    advanceZombie y x
-    printState
+  let err = "Please enter in the collect format: (y, x)"
+  maybe (liftIO $ putStrLn err) (uncurry advanceZombie)
+    $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
   )
