@@ -1,5 +1,6 @@
 -- {-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 module Main where
 
@@ -7,6 +8,8 @@ import Control.Monad
 import Control.Monad.State
 import Control.Applicative
 import Data.Maybe (listToMaybe,catMaybes)
+import Data.Typeable (Typeable(..))
+import qualified Control.Exception as E
 import qualified Data.Matrix       as M
 import qualified Data.Vector       as V
 import qualified System.Random.MWC as R
@@ -129,8 +132,12 @@ randomCol r p = do
 fill :: a -> Int -> Int -> M.Matrix a
 fill a r c = M.matrix r c $ \_ -> a
 
+data TooSmallMatrix = TooSmallMatrix deriving (Show, Typeable)
+instance E.Exception TooSmallMatrix where
+
 initialMatrix :: Int -> Int -> IO (M.Matrix Zombie)
 initialMatrix r c = do
+  when (r <= 2 || c < 4) $ E.throwIO TooSmallMatrix
   let col = fill Empty (r - 2) 1
       row = fill Empty 1 c
   left  <- randomCol (r - 2) Blue
@@ -141,7 +148,7 @@ initialMatrix r c = do
   return $ row M.<-> gu M.<-> row
 
 main :: IO ()
-main = flip evalStateT _4x4 $ do
+main = initialMatrix 10 10 >>= evalStateT (do
   -- modifyLURD f (2,2)
-  -- printState
-  liftIO $ initialMatrix 6 6 >>= print
+  printState
+  )
