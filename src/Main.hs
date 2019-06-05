@@ -30,11 +30,31 @@ cyclicToEnum i = toEnum $ i `mod` length ([minBound .. maxBound :: a])
 
 modifyL :: ([a] -> [a]) -> (Int, Int) -> M.Matrix a -> M.Matrix a
 modifyL f (x, y) m = M.matrix (M.nrows m) (M.ncols m) $ \(r,c) ->
-  maybe (M.unsafeGet r c m) id $ guard (r == x) >> ls `safeIx` (fixedY - c)
+  maybe (M.unsafeGet r c m) id $ guard (r == x) >> ls `safeIx` (fixed - c)
   where
-    fixedY = if y > M.nrows m then M.nrows m else y
-    ls     = f $ catMaybes $ map (\y' -> M.safeGet x y' m)
-                           $ enumToFrom fixedY 1
+    fixed = downer (M.nrows m) y
+    ls    = f $ catMaybes $ map (\y' -> M.safeGet x y' m) $ enumToFrom fixed 1
+
+modifyU :: ([a] -> [a]) -> (Int, Int) -> M.Matrix a -> M.Matrix a
+modifyU f (x, y) m = M.matrix (M.nrows m) (M.ncols m) $ \(r,c) ->
+  maybe (M.unsafeGet r c m) id $ guard (c == y) >> ls `safeIx` (fixed - r)
+  where
+    fixed = downer (M.ncols m) x
+    ls    = f $ catMaybes $ map (\x' -> M.safeGet x' y m) $ enumToFrom fixed 1
+
+modifyR :: ([a] -> [a]) -> (Int, Int) -> M.Matrix a -> M.Matrix a
+modifyR f (x, y) m = M.matrix (M.nrows m) (M.ncols m) $ \(r,c) ->
+  maybe (M.unsafeGet r c m) id $ guard (r == x) >> ls `safeIx` (c - fixed)
+  where
+    fixed = upper 1 y
+    ls    = f $ catMaybes $ map (\y' -> M.safeGet x y' m)
+                          $ enumFromTo fixed (M.nrows m)
+
+upper :: Ord a => a -> a -> a
+upper a b = if a >= b then a else b
+
+downer :: Ord a => a -> a -> a
+downer a b = if a <= b then a else b
 
 enumToFrom :: Enum a => a -> a -> [a]
 enumToFrom a = enumFromThenTo a $ pred a
