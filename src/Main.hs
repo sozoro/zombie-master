@@ -119,15 +119,29 @@ f ls = do
 printState :: (MonadIO m, Show r) => StateT r m ()
 printState = get >>= liftIO . print
 
-initialCol :: Int -> Int -> Player -> IO (M.Matrix Zombie)
-initialCol r c p = do
+randomCol :: Int -> Player -> IO (M.Matrix Zombie)
+randomCol r p = do
   gen <- R.createSystemRandom
   vec <- R.uniformVector gen r :: IO (V.Vector Int)
   return $ M.colVector
          $ (Zombie p . cyclicToEnum) <$> vec
 
+fill :: a -> Int -> Int -> M.Matrix a
+fill a r c = M.matrix r c $ \_ -> a
+
+initialMatrix :: Int -> Int -> IO (M.Matrix Zombie)
+initialMatrix r c = do
+  let col = fill Empty (r - 2) 1
+      row = fill Empty 1 c
+  left  <- randomCol (r - 2) Blue
+  right <- randomCol (r - 2) Red
+  let gu = col M.<|> left
+             M.<|> fill Empty (r - 2) (c - 4)
+               M.<|> right M.<|> col
+  return $ row M.<-> gu M.<-> row
+
 main :: IO ()
 main = flip evalStateT _4x4 $ do
-  modifyLURD f (2,2)
-  printState
-  liftIO $ initialCol 4 4 Blue >>= print
+  -- modifyLURD f (2,2)
+  -- printState
+  liftIO $ initialMatrix 6 6 >>= print
