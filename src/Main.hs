@@ -1,4 +1,4 @@
--- {-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
+{-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 
@@ -6,9 +6,8 @@ module Main where
 
 import Control.Monad
 import Control.Monad.State
-import Control.Applicative
 import Data.Maybe (listToMaybe,catMaybes)
-import Data.Typeable (Typeable(..))
+import Data.Typeable (Typeable)
 import qualified Control.Exception as E
 import qualified Data.Matrix       as M
 import qualified Data.Vector       as V
@@ -181,7 +180,7 @@ checkZombie' m y x =
 advanceZombie :: MonadIO m
               => Int -> Int -> StateT (M.Matrix Zombie) m ()
 advanceZombie y x = checkZombie y x >>= \case
-  IsZombie (Forwardable p d) -> do
+  IsZombie (Forwardable _ d) -> do
            modifyTo d y x $ \case
              (z:e:xs) -> return (e:z:xs)
              _        -> return []
@@ -207,9 +206,9 @@ mapHead f (x:xs) = f x : xs
 rule :: Monad m
      => Int -> Int -> StateT (M.Matrix Zombie) m ()
 rule y x = modifyLURD y x $ \case
-  (x@(Zombie _ _):xs) -> let (space, remaining) = break isZombie xs
-                             f y = if x `isEnemyOf` y then turnZombie y else y
-                         in return $ x : (space ++ mapHead f remaining)
+  (a@(Zombie _ _):as) -> let (space, remaining) = break isZombie as
+                             f b = if a `isEnemyOf` b then turnZombie b else b
+                         in return $ a : (space ++ mapHead f remaining)
   _ -> return []
 
 main :: IO ()
