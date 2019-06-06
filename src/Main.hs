@@ -240,9 +240,9 @@ data Message
   deriving (Eq, Typeable)
 instance E.Exception Message where
 instance Show Message where
-  show Draw          = "--- Draw ---"
+  show Draw          = "--- draw ---"
   show (Passed p)    = "--- player " ++ show p ++ " has passed ---"
-  show WrongFormat   = "Please enter in the collect format: (y, x)"
+  show WrongFormat   = "please enter in the collect format: (y, x)"
   show NotYourZombie = "it is not your zombie"
 
 main :: IO ()
