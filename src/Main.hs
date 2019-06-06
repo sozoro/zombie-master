@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
+-- {-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE LambdaCase #-}
@@ -9,10 +9,11 @@ import Control.Monad
 import Control.Monad.State
 import Data.Maybe (listToMaybe,catMaybes)
 import Data.Typeable (Typeable)
-import qualified Control.Exception as E
-import qualified Data.Matrix       as M
-import qualified Data.Vector       as V
-import qualified System.Random.MWC as R
+import qualified Control.Exception   as E
+import qualified Data.Matrix         as M
+import qualified Data.Vector         as V
+import qualified System.Console.ANSI as A
+import qualified System.Random.MWC   as R
 
 data Clockwise = L | U | R | D deriving (Eq, Enum, Bounded)
 instance Show Clockwise where
@@ -184,7 +185,7 @@ advanceZombie :: MonadIO m
 advanceZombie y x = checkZombie y x >>= \case
   IsZombie (Forwardable p d) -> lift get >>= \me ->
          if p /= me
-         then liftIO $ putStrLn "it is not your zombie"
+         then liftIO $ print NotYourZombie
          else do
            modifyTo d y x $ \case
              (z:e:xs) -> return (e:z:xs)
@@ -217,13 +218,47 @@ rule y x = modifyLURD y x $ \case
                          in return $ a : (space ++ mapHead f remaining)
   _ -> return []
 
+checkZombies :: Monad m => StateT (M.Matrix Zombie) m (M.Matrix CellStatus)
+checkZombies = get >>= \m ->
+  return $ M.matrix (M.nrows m) (M.ncols m) $ \(r,c) -> checkZombie' m r c
+
+forwardable :: CellStatus -> Bool
+forwardable (IsZombie (Forwardable _ _)) = True
+forwardable _                            = False
+
+actionable :: Player -> M.Matrix CellStatus -> Bool
+actionable p csmx = foldr f False csmx
+  where
+    f (IsZombie (Forwardable p' _)) = if p' == p then const True else id
+    f _                             = id
+
+data Message
+  = Draw
+  | Passed Player
+  | WrongFormat
+  | NotYourZombie
+  deriving (Eq, Typeable)
+instance E.Exception Message where
+instance Show Message where
+  show Draw          = "--- Draw ---"
+  show (Passed p)    = "--- player " ++ show p ++ " has passed ---"
+  show WrongFormat   = "Please enter in the collect format: (y, x)"
+  show NotYourZombie = "it is not your zombie"
+
 main :: IO ()
 main = initialMatrix 10 10 >>= \m ->
   flip evalStateT Blue $ flip evalStateT m $ forever $ do
     printState
-    liftIO $ putStr "next player is: "
-    lift $ printState
-    line <- liftIO $ getLine
-    let err = "Please enter in the collect format: (y, x)"
-    maybe (liftIO $ putStrLn err) (uncurry advanceZombie)
-      $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
+    cs <- checkZombies
+    pl <- lift $ get
+    if not $ actionable pl cs
+    then if fmap forwardable cs == fmap (const False) cs
+      then liftIO $ E.throwIO Draw
+      else do liftIO $ print $ Passed pl
+              lift $ modify cyclicSucc
+    else do
+      liftIO $ putStr "next player is: "
+      lift $ printState
+      line <- liftIO $ getLine
+      maybe (liftIO $ print WrongFormat) (uncurry advanceZombie)
+        $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
