@@ -30,7 +30,7 @@ executable zombie-master
   build-depends:       base,
                        mtl,
                        mwc-random,
-                       vty,
+                       ansi-terminal,
                        vector,
                        matrix
   hs-source-dirs:      src

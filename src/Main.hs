@@ -179,13 +179,18 @@ checkZombie' m y x =
                           else DeadLocked  p d
 
 advanceZombie :: MonadIO m
-              => Int -> Int -> StateT (M.Matrix Zombie) m ()
+              => Int -> Int
+              -> StateT (M.Matrix Zombie) (StateT Player m) ()
 advanceZombie y x = checkZombie y x >>= \case
-  IsZombie (Forwardable _ d) -> do
+  IsZombie (Forwardable p d) -> lift get >>= \me ->
+         if p /= me
+         then liftIO $ putStrLn "it is not your zombie"
+         else do
            modifyTo d y x $ \case
              (z:e:xs) -> return (e:z:xs)
              _        -> return []
            uncurry rule $ (y, x) `forward` d
+           lift $ modify cyclicSucc
   err -> liftIO $ print err
 
 isZombie :: Zombie -> Bool
@@ -213,10 +218,12 @@ rule y x = modifyLURD y x $ \case
   _ -> return []
 
 main :: IO ()
-main = initialMatrix 10 10 >>= evalStateT (forever $ do
-  printState
-  line <- liftIO $ getLine
-  let err = "Please enter in the collect format: (y, x)"
-  maybe (liftIO $ putStrLn err) (uncurry advanceZombie)
-    $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
-  )
+main = initialMatrix 10 10 >>= \m ->
+  flip evalStateT Blue $ flip evalStateT m $ forever $ do
+    printState
+    liftIO $ putStr "next player is: "
+    lift $ printState
+    line <- liftIO $ getLine
+    let err = "Please enter in the collect format: (y, x)"
+    maybe (liftIO $ putStrLn err) (uncurry advanceZombie)
+      $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
