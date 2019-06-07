@@ -31,6 +31,7 @@ executable zombie-master
                        mtl,
                        mwc-random,
                        ansi-terminal,
+                       colour,
                        vector,
                        matrix
   hs-source-dirs:      src

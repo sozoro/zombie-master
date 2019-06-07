@@ -2,6 +2,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Main where
 
@@ -10,20 +12,23 @@ import Control.Monad.State
 import Data.Maybe (listToMaybe,catMaybes)
 import Data.Typeable (Typeable)
 import qualified Control.Exception   as E
+import qualified Data.Colour.SRGB    as C
 import qualified Data.Matrix         as M
 import qualified Data.Vector         as V
 import qualified System.Console.ANSI as A
 import qualified System.Random.MWC   as R
 
-data Clockwise = L | U | R | D deriving (Eq, Enum, Bounded)
-instance Show Clockwise where
+data Clockwise = L | U | R | D deriving (Eq, Enum, Bounded, Ord)
+instance Cyclic Clockwise where
+instance Show   Clockwise where
   show L = "←"
   show U = "↑"
   show R = "→"
   show D = "↓"
 
-data Player = Blue | Red deriving (Eq, Enum, Bounded)
-instance Show Player where
+data Player = Blue | Red deriving (Eq, Enum, Bounded, Ord)
+instance Cyclic Player where
+instance Show   Player where
   show Blue = "B"
   show Red  = "R"
 
@@ -37,16 +42,25 @@ instance Show Zombie where
   show Empty        = "  "
   show (Zombie p d) = show p ++ show d
 
-cyclicSucc :: forall a. (Enum a, Bounded a) => a -> a
-cyclicSucc a | fromEnum a >= fromEnum (maxBound :: a) = minBound
-             | otherwise                              = succ a
+class (Enum a, Bounded a) => Cyclic a where
+  cyclicSucc :: a -> a
+  cyclicSucc a | fromEnum a >= fromEnum (maxBound :: a) = minBound
+               | otherwise                              = succ a
+  
+  cyclicPred :: a -> a
+  cyclicPred a | fromEnum a <= fromEnum (minBound :: a) = maxBound
+               | otherwise                              = pred a
+  
+  cyclicToEnum :: Int -> a
+  cyclicToEnum i = toEnum $ i `mod` length ([minBound .. maxBound :: a])
 
-cyclicPred :: forall a. (Enum a, Bounded a) => a -> a
-cyclicPred a | fromEnum a <= fromEnum (minBound :: a) = maxBound
-             | otherwise                              = pred a
-
-cyclicToEnum :: forall a. (Enum a, Bounded a) => Int -> a
-cyclicToEnum i = toEnum $ i `mod` length ([minBound .. maxBound :: a])
+instance (Show a, Eq a, Cyclic a) => Num a where
+  x + y = cyclicToEnum $ fromEnum x + fromEnum y
+  x - y = cyclicToEnum $ fromEnum x - fromEnum y
+  x * y = cyclicToEnum $ fromEnum x * fromEnum y
+  abs         = cyclicToEnum . abs    . fromEnum
+  signum      = cyclicToEnum . signum . fromEnum
+  fromInteger = cyclicToEnum . fromInteger
 
 modifyL :: Monad m
         => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
@@ -245,8 +259,8 @@ instance Show Message where
   show WrongFormat   = "please enter in the collect format: (y, x)"
   show NotYourZombie = "it is not your zombie"
 
-main :: IO ()
-main = initialMatrix 10 10 >>= \m ->
+monoColor :: IO ()
+monoColor = initialMatrix 10 10 >>= \m ->
   flip evalStateT Blue $ flip evalStateT m $ forever $ do
     printState
     cs <- checkZombies
@@ -262,3 +276,28 @@ main = initialMatrix 10 10 >>= \m ->
       line <- liftIO $ getLine
       maybe (liftIO $ print WrongFormat) (uncurry advanceZombie)
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
+
+data XtermColor
+  = XtermColor
+  | Reset
+  | DontTouch
+
+data SixLevel
+  = SixLevel0
+  | SixLevel1
+  | SixLevel2
+  | SixLevel3
+  | SixLevel4
+  | SixLevel5
+  deriving (Show, Eq, Enum, Bounded)
+instance Cyclic SixLevel
+
+-- toSRGB18 :: (RealFrac b, Floating b) => C.Colour b -> C.RGB W.Word6
+-- toSRGB18 = C.toSRGBBounded
+
+main :: IO ()
+main = do
+  let colour      = C.sRGB24 255 0 0
+  -- let C.RGB r g b = fmap fromIntegral $ toSRGB18 colour
+  print $ L >= D
+  return ()
