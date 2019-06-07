@@ -30,7 +30,7 @@ executable zombie-master
   build-depends:       base,
                        mtl,
                        mwc-random,
-                       ansi-terminal,
+                       ansi-terminal >= 0.9,
                        colour,
                        vector,
                        matrix

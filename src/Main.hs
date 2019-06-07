@@ -2,11 +2,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Main where
 
+import Cyclic
 import Control.Monad
 import Control.Monad.State
 import Data.Maybe (listToMaybe,catMaybes)
@@ -16,6 +15,7 @@ import qualified Data.Colour.SRGB    as C
 import qualified Data.Matrix         as M
 import qualified Data.Vector         as V
 import qualified System.Console.ANSI as A
+import qualified System.Console.ANSI.Types as A
 import qualified System.Random.MWC   as R
 
 data Clockwise = L | U | R | D deriving (Eq, Enum, Bounded, Ord)
@@ -41,26 +41,6 @@ data Zombie
 instance Show Zombie where
   show Empty        = "  "
   show (Zombie p d) = show p ++ show d
-
-class (Enum a, Bounded a) => Cyclic a where
-  cyclicSucc :: a -> a
-  cyclicSucc a | fromEnum a >= fromEnum (maxBound :: a) = minBound
-               | otherwise                              = succ a
-  
-  cyclicPred :: a -> a
-  cyclicPred a | fromEnum a <= fromEnum (minBound :: a) = maxBound
-               | otherwise                              = pred a
-  
-  cyclicToEnum :: Int -> a
-  cyclicToEnum i = toEnum $ i `mod` length ([minBound .. maxBound :: a])
-
-instance (Show a, Eq a, Cyclic a) => Num a where
-  x + y = cyclicToEnum $ fromEnum x + fromEnum y
-  x - y = cyclicToEnum $ fromEnum x - fromEnum y
-  x * y = cyclicToEnum $ fromEnum x * fromEnum y
-  abs         = cyclicToEnum . abs    . fromEnum
-  signum      = cyclicToEnum . signum . fromEnum
-  fromInteger = cyclicToEnum . fromInteger
 
 modifyL :: Monad m
         => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
@@ -282,22 +262,13 @@ data XtermColor
   | Reset
   | DontTouch
 
-data SixLevel
-  = SixLevel0
-  | SixLevel1
-  | SixLevel2
-  | SixLevel3
-  | SixLevel4
-  | SixLevel5
-  deriving (Show, Eq, Enum, Bounded)
-instance Cyclic SixLevel
-
--- toSRGB18 :: (RealFrac b, Floating b) => C.Colour b -> C.RGB W.Word6
--- toSRGB18 = C.toSRGBBounded
+toSRGB6Level :: (RealFrac b, Floating b)
+             => C.Colour b -> C.RGB (IsCyclic FinSix)
+toSRGB6Level = C.toSRGBBounded
 
 main :: IO ()
 main = do
   let colour      = C.sRGB24 255 0 0
-  -- let C.RGB r g b = fmap fromIntegral $ toSRGB18 colour
-  print $ L >= D
+  let C.RGB r g b = fmap fromIntegral $ toSRGB6Level colour
+  print $ A.xterm6LevelRGB r g b
   return ()
