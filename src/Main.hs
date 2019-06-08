@@ -273,3 +273,4 @@ main = do
   A.setSGR [A.SetRGBColor A.Background colour]
   print colour
   A.setSGR [A.Reset]
+  putChar '\n'
