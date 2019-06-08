@@ -16,8 +16,7 @@ build-type:          Simple
 extra-source-files:  CHANGELOG.md
 
 library
-  -- exposed-modules:
-  -- other-modules:
+  exposed-modules: Cyclic
   -- other-extensions:
   build-depends:       base
   hs-source-dirs:      src
@@ -25,7 +24,7 @@ library
 
 executable zombie-master
   main-is:             Main.hs
-  -- other-modules:
+  other-modules:       Cyclic
   -- other-extensions:
   build-depends:       base,
                        mtl,

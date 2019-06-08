@@ -257,10 +257,8 @@ monoColor = initialMatrix 10 10 >>= \m ->
       maybe (liftIO $ print WrongFormat) (uncurry advanceZombie)
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
 
-data XtermColor
-  = XtermColor
-  | Reset
-  | DontTouch
+type ChangeFBColorTo
+  = Maybe (Maybe (C.Colour Float), Maybe (C.Colour Float))
 
 toSRGB6Level :: (RealFrac b, Floating b)
              => C.Colour b -> C.RGB (IsCyclic FinSix)
@@ -268,7 +266,10 @@ toSRGB6Level = C.toSRGBBounded
 
 main :: IO ()
 main = do
-  let colour      = C.sRGB24 255 0 0
-  let C.RGB r g b = fmap fromIntegral $ toSRGB6Level colour
-  print $ A.xterm6LevelRGB r g b
-  return ()
+  let colour      = C.sRGB 0.08235 0.8353 0.6000
+  -- let C.RGB r g b = fmap fromIntegral $ toSRGB6Level colour
+  -- let xtermColor  = A.xterm6LevelRGB r g b
+  -- A.setSGR [A.SetPaletteColor A.Foreground xtermColor]
+  A.setSGR [A.SetRGBColor A.Background colour]
+  print colour
+  A.setSGR [A.Reset]
