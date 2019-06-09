@@ -264,10 +264,6 @@ monoColor = initialMatrix 10 10 >>= \m ->
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
 
 
-toSRGB6Level :: (RealFrac b, Floating b)
-             => C.Colour b -> C.RGB (IsCyclic FinSix)
-toSRGB6Level = C.toSRGBBounded
-
 data V2 a = V2 { v2x :: !a , v2y :: !a } deriving (Show, Eq)
 instance Functor V2 where
   fmap f (V2 fore back) = V2 (f fore) (f back)
@@ -308,15 +304,31 @@ instance MonadAddCharStr (State ShowS) where
   addChar cha = modify $ \f -> f . (cha :)
   addStr  str = modify $ \f -> f . (str ++)
 
-colorChar :: MonadAddCharStr m => ColorChar -> StateT FBColorDiff m ()
-colorChar (ColorChar col cha) = do
+type ColorSetter = A.ConsoleLayer -> Color -> A.SGR
+
+setColor24bit :: ColorSetter
+setColor24bit = A.SetRGBColor
+
+toSRGB6Level :: (RealFrac b, Floating b)
+             => C.Colour b -> C.RGB (IsCyclic FinSix)
+toSRGB6Level = C.toSRGBBounded
+
+setColor6Level :: ColorSetter
+setColor6Level layer color =
+  A.SetPaletteColor layer $ A.xterm6LevelRGB r g b
+  where
+    C.RGB r g b = fromIntegral <$> toSRGB6Level color
+
+colorChar :: MonadAddCharStr m
+          => ColorSetter -> ColorChar -> StateT FBColorDiff m ()
+colorChar setter (ColorChar col cha) = do
   old <- get
   let new       = update (if cha == '\n' then Nothing else col) old
   let diffCol   = old `diff` new
   when (diffCol /= fmap (const Nothing) old) $ do
     let changings = asum $ maybeToList
                         <$> ((\a -> fmap (a,)) <$> fb <*> fmap join diffCol)
-    lift $ addStr $ A.setSGRCode $ uncurry A.SetRGBColor <$> changings
+    lift $ addStr $ A.setSGRCode $ uncurry setter <$> changings
     put new
   lift $ addChar cha
 
@@ -329,22 +341,22 @@ diff x = (diff' <$> x <*>)
   where
     diff' c d = if c == d then Nothing else Just d
 
-colorStr :: MonadAddCharStr m => ColorStr -> m ()
-colorStr = flip evalStateT (V2 Nothing Nothing)
-         . mapM_ colorChar . colorChars
+colorStr :: MonadAddCharStr m => ColorSetter -> ColorStr -> m ()
+colorStr setter = flip evalStateT (V2 Nothing Nothing)
+                . mapM_ (colorChar setter) . colorChars
 
-showsColorStr :: ColorStr -> ShowS
-showsColorStr = flip execState id . colorStr
+showsColorStr :: ColorSetter -> ColorStr -> ShowS
+showsColorStr setter = flip execState id . colorStr setter
 
 instance Show ColorStr where
-  show = flip showsColorStr $ A.setSGRCode [A.Reset]
+  show = flip (showsColorStr setColor6Level) $ A.setSGRCode [A.Reset]
 
-putColorStr :: ColorStr -> IO ()
+putColorStr :: ColorSetter -> ColorStr -> IO ()
 putColorStr = colorStr
 
-putColorStrLn :: ColorStr -> IO ()
-putColorStrLn sc = do
-  colorStr sc
+putColorStrLn :: ColorSetter -> ColorStr -> IO ()
+putColorStrLn setter sc = do
+  colorStr setter sc
   putStr $ A.setSGRCode [A.Reset] ++ "\n"
 
 monochroStrs :: [(ColoredOrNot, String)] -> ColorStr
@@ -356,8 +368,8 @@ main = do
                         , (Nothing, " ")
                         , (fb2, "world")
                         ]
-  print         sc
-  putColorStrLn sc
+  print                       sc
+  putColorStrLn setColor24bit sc
   where
     color1 = Just $ C.sRGB 0.419 0.776 1
     color2 = Just $ C.sRGB 0.678 0.019 0.274
