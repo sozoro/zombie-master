@@ -289,12 +289,12 @@ type ColorDiff    = Maybe Color
 type FBColorDiff  = V2 ColorDiff
 type ColoredOrNot = Maybe FBColorDiff
 
-data CharWithColor = CharWithColor
+data ColorChar = ColorChar
   { cwcColor :: !ColoredOrNot
   , cwcChar  :: !Char
   } deriving (Show, Eq)
 
-newtype StrWithColors = StrWithColors { charWithColors :: [CharWithColor] }
+newtype ColorStr = ColorStr { colorChars :: [ColorChar] }
 
 class Monad m => MonadAddCharStr m where
   addChar :: Char   -> m ()
@@ -308,8 +308,8 @@ instance MonadAddCharStr (State ShowS) where
   addChar cha = modify $ \f -> f . (cha :)
   addStr  str = modify $ \f -> f . (str ++)
 
-charWithColor :: MonadAddCharStr m => CharWithColor -> StateT FBColorDiff m ()
-charWithColor (CharWithColor col cha) = do
+colorChar :: MonadAddCharStr m => ColorChar -> StateT FBColorDiff m ()
+colorChar (ColorChar col cha) = do
   old <- get
   let new       = update (if cha == '\n' then Nothing else col) old
   let diffCol   = old `diff` new
@@ -329,32 +329,35 @@ diff x = (diff' <$> x <*>)
   where
     diff' c d = if c == d then Nothing else Just d
 
-strWithColors :: MonadAddCharStr m => StrWithColors -> m ()
-strWithColors = flip evalStateT (V2 Nothing Nothing)
-              . mapM_ charWithColor . charWithColors
+colorStr :: MonadAddCharStr m => ColorStr -> m ()
+colorStr = flip evalStateT (V2 Nothing Nothing)
+         . mapM_ colorChar . colorChars
 
-showsStrWithColors :: StrWithColors -> ShowS
-showsStrWithColors = flip execState id . strWithColors
+showsColorStr :: ColorStr -> ShowS
+showsColorStr = flip execState id . colorStr
 
-instance Show StrWithColors where
-  show = flip showsStrWithColors $ A.setSGRCode [A.Reset]
+instance Show ColorStr where
+  show = flip showsColorStr $ A.setSGRCode [A.Reset]
 
-putStrWithColors :: StrWithColors -> IO ()
-putStrWithColors sc = do
-  strWithColors sc
+putColorStr :: ColorStr -> IO ()
+putColorStr = colorStr
+
+putColorStrLn :: ColorStr -> IO ()
+putColorStrLn sc = do
+  colorStr sc
   putStr $ A.setSGRCode [A.Reset] ++ "\n"
 
-colorStrings :: [(ColoredOrNot, String)] -> StrWithColors
-colorStrings = coerce . join . fmap (uncurry $ fmap . CharWithColor)
+monochroStrs :: [(ColoredOrNot, String)] -> ColorStr
+monochroStrs = coerce . join . fmap (uncurry $ fmap . ColorChar)
 
 main :: IO ()
 main = do
-  let sc = colorStrings [ (fb1, "hello")
+  let sc = monochroStrs [ (fb1, "hello")
                         , (Nothing, " ")
                         , (fb2, "world")
                         ]
-  print            sc
-  putStrWithColors sc
+  print         sc
+  putColorStrLn sc
   where
     color1 = Just $ C.sRGB 0.419 0.776 1
     color2 = Just $ C.sRGB 0.678 0.019 0.274
