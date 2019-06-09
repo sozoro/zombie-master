@@ -329,17 +329,19 @@ diff x = (diff' <$> x <*>)
   where
     diff' c d = if c == d then Nothing else Just d
 
+strWithColors :: MonadAddCharStr m => StrWithColors -> m ()
+strWithColors = flip evalStateT (V2 Nothing Nothing)
+              . mapM_ charWithColor . charWithColors
+
 showsStrWithColors :: StrWithColors -> ShowS
-showsStrWithColors = flip execState id . flip evalStateT (V2 Nothing Nothing)
-                   . mapM_ charWithColor . charWithColors
+showsStrWithColors = flip execState id . strWithColors
 
 instance Show StrWithColors where
   show = flip showsStrWithColors $ A.setSGRCode [A.Reset]
 
 putStrWithColors :: StrWithColors -> IO ()
 putStrWithColors sc = do
-  flip evalStateT (V2 Nothing Nothing)
-    $ mapM_ charWithColor $ charWithColors sc
+  strWithColors sc
   putStr $ A.setSGRCode [A.Reset] ++ "\n"
 
 colorStrings :: [(ColoredOrNot, String)] -> StrWithColors
