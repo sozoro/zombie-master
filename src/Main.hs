@@ -2,21 +2,27 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Main where
 
 import Cyclic
+import Control.Applicative
 import Control.Monad
-import Control.Monad.State
-import Data.Maybe (listToMaybe,catMaybes)
+import Control.Monad.State.Strict
+import Data.Coerce
+import Data.Foldable (asum)
+import Data.Maybe (listToMaybe,maybeToList,catMaybes)
 import Data.Typeable (Typeable)
-import qualified Control.Exception   as E
-import qualified Data.Colour.SRGB    as C
-import qualified Data.Matrix         as M
-import qualified Data.Vector         as V
-import qualified System.Console.ANSI as A
+import qualified Control.Exception         as E
+import qualified Data.Colour.SRGB          as C
+import qualified Data.Matrix               as M
+import qualified Data.Vector               as V
+import qualified System.Console.ANSI       as A
 import qualified System.Console.ANSI.Types as A
-import qualified System.Random.MWC   as R
+import qualified System.Random.MWC         as R
 
 data Clockwise = L | U | R | D deriving (Eq, Enum, Bounded, Ord)
 instance Cyclic Clockwise where
@@ -257,20 +263,98 @@ monoColor = initialMatrix 10 10 >>= \m ->
       maybe (liftIO $ print WrongFormat) (uncurry advanceZombie)
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
 
-type ChangeFBColorTo
-  = Maybe (Maybe (C.Colour Float), Maybe (C.Colour Float))
 
 toSRGB6Level :: (RealFrac b, Floating b)
              => C.Colour b -> C.RGB (IsCyclic FinSix)
 toSRGB6Level = C.toSRGBBounded
 
+data V2 a = V2 { v2x :: !a , v2y :: !a } deriving (Show, Eq)
+instance Functor V2 where
+  fmap f (V2 fore back) = V2 (f fore) (f back)
+instance Applicative V2 where
+  pure a            = V2 a     a
+  V2 f g <*> V2 x y = V2 (f x) (g y)
+instance Foldable V2 where
+  foldr f z (V2 x y) = f x $ f y z
+instance Semigroup a => Semigroup (V2 a) where
+  V2 x1 y1 <> V2 x2 y2 = V2 (x1 <> x2) (y1 <> y2)
+instance Monoid a => Monoid (V2 a) where
+  mempty = V2 mempty mempty
+
+fb :: V2 A.ConsoleLayer
+fb = V2 A.Foreground A.Background
+
+type Color        = C.Colour Float
+type ColorDiff    = Maybe Color
+type FBColorDiff  = V2 ColorDiff
+type ColoredOrNot = Maybe FBColorDiff
+
+data CharWithColor = CharWithColor
+  { cwcColor :: !ColoredOrNot
+  , cwcChar  :: !Char
+  } deriving (Show, Eq)
+
+newtype StrWithColors = StrWithColors { charWithColors :: [CharWithColor] }
+
+class Monad m => MonadAddCharStr m where
+  addChar :: Char   -> m ()
+  addStr  :: String -> m ()
+
+instance MonadAddCharStr IO where
+  addChar = putChar
+  addStr  = putStr
+
+instance MonadAddCharStr (State ShowS) where
+  addChar cha = modify $ \f -> f . (cha :)
+  addStr  str = modify $ \f -> f . (str ++)
+
+charWithColor :: MonadAddCharStr m => CharWithColor -> StateT FBColorDiff m ()
+charWithColor (CharWithColor col cha) = do
+  old <- get
+  let new       = update (if cha == '\n' then Nothing else col) old
+  let diffCol   = old `diff` new
+  when (diffCol /= fmap (const Nothing) old) $ do
+    let changings = asum $ maybeToList
+                        <$> ((\a -> fmap (a,)) <$> fb <*> fmap join diffCol)
+    lift $ addStr $ A.setSGRCode $ uncurry A.SetRGBColor <$> changings
+    put new
+  lift $ addChar cha
+
+update :: Alternative f => Maybe (V2 (f a)) -> V2 (f a) -> V2 (f a)
+update Nothing   = const $ V2 empty empty
+update (Just fb) = ((<|>) <$> fb <*>)
+
+diff :: (Applicative f, Eq a) => f a -> f a -> f (Maybe a)
+diff x = (diff' <$> x <*>)
+  where
+    diff' c d = if c == d then Nothing else Just d
+
+showsStrWithColors :: StrWithColors -> ShowS
+showsStrWithColors = flip execState id . flip evalStateT (V2 Nothing Nothing)
+                   . mapM_ charWithColor . charWithColors
+
+instance Show StrWithColors where
+  show = flip showsStrWithColors $ A.setSGRCode [A.Reset]
+
+putStrWithColors :: StrWithColors -> IO ()
+putStrWithColors sc = do
+  flip evalStateT (V2 Nothing Nothing)
+    $ mapM_ charWithColor $ charWithColors sc
+  putStr $ A.setSGRCode [A.Reset] ++ "\n"
+
+colorStrings :: [(ColoredOrNot, String)] -> StrWithColors
+colorStrings = coerce . join . fmap (uncurry $ fmap . CharWithColor)
+
 main :: IO ()
 main = do
-  let colour      = C.sRGB 0.08235 0.8353 0.6000
-  -- let C.RGB r g b = fmap fromIntegral $ toSRGB6Level colour
-  -- let xtermColor  = A.xterm6LevelRGB r g b
-  -- A.setSGR [A.SetPaletteColor A.Foreground xtermColor]
-  A.setSGR [A.SetRGBColor A.Background colour]
-  print colour
-  A.setSGR [A.Reset]
-  putChar '\n'
+  let sc = colorStrings [ (fb1, "hello")
+                        , (Nothing, " ")
+                        , (fb2, "world")
+                        ]
+  print            sc
+  putStrWithColors sc
+  where
+    color1 = Just $ C.sRGB 0.419 0.776 1
+    color2 = Just $ C.sRGB 0.678 0.019 0.274
+    fb1 = Just $ V2 color1 color2
+    fb2 = Just $ V2 color2 color1
