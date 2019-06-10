@@ -38,6 +38,14 @@ instance Show   Player where
   show Blue = "B"
   show Red  = "R"
 
+toColor :: Player -> Color
+toColor Blue = C.sRGB24 0   171 255
+toColor Red  = C.sRGB24 255 0   171
+
+instance ColorShow Player where
+  colorShow p = monochroStrs
+    [(Just $ V2 (Just $ toColor p) Nothing, show p)]
+
 data Zombie
   = Empty
   | Zombie
@@ -47,6 +55,34 @@ data Zombie
 instance Show Zombie where
   show Empty        = "  "
   show (Zombie p d) = show p ++ show d
+instance ColorShow Zombie where
+  colorShow Empty        = ColorStr [space]
+  colorShow (Zombie p d) = monochroStrs
+    [(Just $ V2 (Just $ toColor p) Nothing, show d)]
+
+space :: ColorChar
+space = ColorChar Nothing ' '
+
+colorUnlines :: [ColorStr] -> ColorStr
+colorUnlines = ColorStr . f . fmap colorChars
+  where
+    f [] = []
+    f (xs:xss) = xs ++ (ColorChar Nothing '\n')
+                     : colorChars (colorUnlines $ ColorStr xss)
+
+colorUnwords :: [ColorStr] -> ColorStr
+colorUnwords = ColorStr . join . fmap colorChars
+
+prettyColorMatrix :: ColorShow a
+                  => ColoredOrNot -> ColoredOrNot
+                  -> M.Matrix a -> ColorStr
+prettyColorMatrix c1 c2 m = colorUnlines
+  [ colorUnwords $ fmap (\c -> fillS mx $ colorShow $ m M.! (r,c)) [1..M.ncols m]
+  | r <- [1..M.nrows m] ]
+  where
+    mx = foldr max 0 $ fmap (length . colorChars . colorShow) m
+    fillS k colStr = ColorStr $ replicate (k - length (colorChars colStr)) space
+                  ++ colorChars colStr
 
 modifyL :: Monad m
         => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
