@@ -11,8 +11,8 @@ module Main where
 import Cyclic
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Data.Coerce
 import Data.Foldable (asum)
 import Data.Maybe (listToMaybe,maybeToList,catMaybes)
 import Data.Typeable (Typeable)
@@ -305,6 +305,7 @@ instance MonadAddCharStr (State ShowS) where
   addStr  str = modify $ \f -> f . (str ++)
 
 type ColorSetter = A.ConsoleLayer -> Color -> A.SGR
+type WithColor m a = ReaderT ColorSetter m a
 
 setColor24bit :: ColorSetter
 setColor24bit = A.SetRGBColor
@@ -320,17 +321,18 @@ setColor6Level layer color =
     C.RGB r g b = fromIntegral <$> toSRGB6Level color
 
 colorChar :: MonadAddCharStr m
-          => ColorSetter -> ColorChar -> StateT FBColorDiff m ()
-colorChar setter (ColorChar col cha) = do
+          => ColorChar -> StateT FBColorDiff (ReaderT ColorSetter m) ()
+colorChar (ColorChar col cha) = do
   old <- get
   let new       = update (if cha == '\n' then Nothing else col) old
   let diffCol   = old `diff` new
   when (diffCol /= fmap (const Nothing) old) $ do
     let changings = asum $ maybeToList
                         <$> ((\a -> fmap (a,)) <$> fb <*> fmap join diffCol)
-    lift $ addStr $ A.setSGRCode $ uncurry setter <$> changings
+    setter <- lift ask
+    lift $ lift $ addStr $ A.setSGRCode $ uncurry setter <$> changings
     put new
-  lift $ addChar cha
+  lift $ lift $ addChar cha
 
 update :: Alternative f => Maybe (V2 (f a)) -> V2 (f a) -> V2 (f a)
 update Nothing   = const $ V2 empty empty
@@ -341,37 +343,56 @@ diff x = (diff' <$> x <*>)
   where
     diff' c d = if c == d then Nothing else Just d
 
-colorStr :: MonadAddCharStr m => ColorSetter -> ColorStr -> m ()
-colorStr setter = flip evalStateT (V2 Nothing Nothing)
-                . mapM_ (colorChar setter) . colorChars
+colorStr :: MonadAddCharStr m => ColorStr -> WithColor m ()
+colorStr = flip evalStateT (V2 Nothing Nothing)
+         . mapM_ colorChar . colorChars
 
 showsColorStr :: ColorSetter -> ColorStr -> ShowS
-showsColorStr setter = flip execState id . colorStr setter
+showsColorStr setter
+  = flip execState id . flip runReaderT setter . colorStr
 
 instance Show ColorStr where
   show = flip (showsColorStr setColor6Level) $ A.setSGRCode [A.Reset]
 
-putColorStr :: ColorSetter -> ColorStr -> IO ()
+putColorStr :: ColorStr -> WithColor IO ()
 putColorStr = colorStr
 
-putColorStrLn :: ColorSetter -> ColorStr -> IO ()
-putColorStrLn setter sc = do
-  colorStr setter sc
-  putStr $ A.setSGRCode [A.Reset] ++ "\n"
+putColorStrLn :: ColorStr -> WithColor IO ()
+putColorStrLn sc = do
+  colorStr sc
+  liftIO $ putStrLn $ A.setSGRCode [A.Reset]
+
+withColor :: ColorSetter -> WithColor IO a -> IO a
+withColor setter m = E.onException (runReaderT m setter)
+                   $ putStrLn $ A.setSGRCode [A.Reset]
 
 monochroStrs :: [(ColoredOrNot, String)] -> ColorStr
-monochroStrs = coerce . join . fmap (uncurry $ fmap . ColorChar)
+monochroStrs = ColorStr . join . fmap (uncurry $ fmap . ColorChar)
+
+class ColorShow a where
+  colorShow :: a -> ColorStr
 
 main :: IO ()
-main = do
-  let sc = monochroStrs [ (fb1, "hello")
+main = withColor setColor24bit $ do
+  let hw = monochroStrs [ (fb1, "hello")
                         , (Nothing, " ")
                         , (fb2, "world")
                         ]
-  print                       sc
-  putColorStrLn setColor24bit sc
+  let smooze = ColorStr $ take 5000 $ drop (256 ^ 3 `div` 2)
+                        $ colorChars $ fullColor
+  liftIO $ print smooze
+  liftIO $ putChar '\n'
+  putColorStrLn smooze
   where
     color1 = Just $ C.sRGB 0.419 0.776 1
     color2 = Just $ C.sRGB 0.678 0.019 0.274
     fb1 = Just $ V2 color1 color2
     fb2 = Just $ V2 color2 color1
+
+fullColor :: ColorStr
+fullColor = ColorStr
+  $ (flip ColorChar ' ' . Just . V2 Nothing . Just . uncurry3 C.sRGB24)
+  <$> [ (r, g, b) | r <- [0..255], g <- [0..255], b <- [0..255] ]
+
+uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
+uncurry3 f (a, b, c) = f a b c
