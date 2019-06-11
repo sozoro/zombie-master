@@ -57,8 +57,7 @@ instance Show Zombie where
   show (Zombie p d) = show p ++ show d
 instance ColorShow Zombie where
   colorShow Empty        = ColorStr [space]
-  colorShow (Zombie p d) = monochroStrs
-    [(Just $ V2 (Just $ toColor p) Nothing, show d)]
+  colorShow (Zombie p d) = colorShow p `addCS` monochroStrs [(through, show d)]
 
 space :: ColorChar
 space = ColorChar Nothing ' '
@@ -66,9 +65,8 @@ space = ColorChar Nothing ' '
 colorUnlines :: [ColorStr] -> ColorStr
 colorUnlines = ColorStr . f . fmap colorChars
   where
-    f [] = []
-    f (xs:xss) = xs ++ (ColorChar Nothing '\n')
-                     : colorChars (colorUnlines $ ColorStr xss)
+    f []       = []
+    f (xs:xss) = xs ++ (ColorChar Nothing '\n') : f xss
 
 colorUnwords :: [ColorStr] -> ColorStr
 colorUnwords = ColorStr . join . fmap colorChars
@@ -77,12 +75,14 @@ prettyColorMatrix :: ColorShow a
                   => ColoredOrNot -> ColoredOrNot
                   -> M.Matrix a -> ColorStr
 prettyColorMatrix c1 c2 m = colorUnlines
-  [ colorUnwords $ fmap (\c -> fillS mx $ colorShow $ m M.! (r,c)) [1..M.ncols m]
+  [ monochroStrs [(c1, "| ")] `addCS`
+    (colorUnwords $ fmap (\c -> fillS mx $ colorShow $ m M.! (r,c))
+     [1..M.ncols m])
   | r <- [1..M.nrows m] ]
   where
     mx = foldr max 0 $ fmap (length . colorChars . colorShow) m
-    fillS k colStr = ColorStr $ replicate (k - length (colorChars colStr)) space
-                  ++ colorChars colStr
+    fillS k colStr =
+      underCS (replicate (k - length (colorChars colStr)) space ++) colStr
 
 modifyL :: Monad m
         => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
@@ -326,7 +326,16 @@ data ColorChar = ColorChar
   , cwcChar  :: !Char
   } deriving (Show, Eq)
 
+through :: ColoredOrNot
+through = Just $ V2 Nothing Nothing
+
 newtype ColorStr = ColorStr { colorChars :: [ColorChar] }
+
+underCS :: ([ColorChar] -> [ColorChar]) -> ColorStr -> ColorStr
+underCS f (ColorStr ls) = ColorStr $ f ls
+
+addCS :: ColorStr -> ColorStr -> ColorStr
+addCS cs = underCS (colorChars cs ++)
 
 class Monad m => MonadAddCharStr m where
   addChar :: Char   -> m ()
@@ -416,9 +425,10 @@ main = withColor setColor24bit $ do
                         ]
   let smooze = ColorStr $ take 5000 $ drop (256 ^ 3 `div` 2)
                         $ colorChars $ fullColor
-  liftIO $ print smooze
-  liftIO $ putChar '\n'
-  putColorStrLn smooze
+  z <- prettyColorMatrix fb1 fb2 <$> liftIO (initialMatrix 10 10)
+  -- liftIO $ print smooze
+  putColorStrLn z
+  putColorStrLn $ prettyColorMatrix fb1 fb2 $ fill (Zombie Red D) 10 10
   where
     color1 = Just $ C.sRGB 0.419 0.776 1
     color2 = Just $ C.sRGB 0.678 0.019 0.274
