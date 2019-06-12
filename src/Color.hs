@@ -124,23 +124,22 @@ colorChar (ColorChar col cha) = do
 colorStr :: MonadAddCharStr m => ColorStr -> WithColor m ()
 colorStr = flip evalStateT (V2 Nothing Nothing) . mapM_ colorChar
 
-newtype ColorStrShowS = CSShowS { csShowS :: ColorStr }
+newtype ColorStrShowS = CSShowS { unCSShowS :: ColorStr }
 
-showsCSStrict :: ColorSetter -> ColorStrStrict -> ShowS
-showsCSStrict setter
-  = flip execState id . flip runReaderT setter . colorStr . csStrict
+csShowS :: ColorSetter -> ColorStrStrict -> ShowS
+csShowS setter
+  = flip execState id . flip runReaderT setter . colorStr . unCSShowS
 
-instance Show ColorStrStrict where
-  show = flip (showsCSStrict setColor6Level) $ A.setSGRCode [A.Reset]
+instance Show ColorStrShowS where
+  show = flip (csShowS setColor6Level) $ A.setSGRCode [A.Reset]
 
-newtype ColorStrLazy = CSLazy { csLazy :: ColorStr }
+newtype ColorStrLazy = CSLazy { unCSLazy :: ColorStr }
 
-showCSLazy :: ColorSetter -> ColorStrLazy -> String
-showCSLazy setter = execWriter . flip runReaderT setter . colorStr . csLazy
+csLazy :: ColorSetter -> ColorStrLazy -> String
+csLazy setter = execWriter . flip runReaderT setter . colorStr . unCSLazy
 
 instance Show ColorStrLazy where
-  show = (++ A.setSGRCode [A.Reset] ++ "\n")
-       . showCSLazy setColor6Level
+  show = (++ A.setSGRCode [A.Reset] ++ "\n") . csLazy setColor6Level
 
 putColorStr :: ColorStr -> WithColor IO ()
 putColorStr = colorStr
