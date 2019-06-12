@@ -21,6 +21,8 @@ library
   -- other-extensions:
   build-depends:       base,
                        mtl,
+                       logict,
+                       logict-state,
                        ansi-terminal >= 0.9,
                        colour
   hs-source-dirs:      src

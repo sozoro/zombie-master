@@ -9,6 +9,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Monad.Writer.Lazy
 import Data.Foldable (asum,elem)
 import Data.Maybe (listToMaybe,maybeToList,catMaybes)
 import qualified Control.Exception         as E
@@ -75,6 +76,10 @@ instance MonadAddCharStr (State ShowS) where
   addChar cha = modify $ \f -> f . (cha :)
   addStr  str = modify $ \f -> f . (str ++)
 
+instance MonadAddCharStr (Writer String) where
+  addChar cha = tell [cha]
+  addStr  str = tell str
+
 type ColorSetter = A.ConsoleLayer -> Color -> A.SGR
 type WithColor m a = ReaderT ColorSetter m a
 
@@ -99,7 +104,7 @@ colorChar :: MonadAddCharStr m
           => ColorChar -> StateT FBColorDiff (ReaderT ColorSetter m) ()
 colorChar (ColorChar col cha) = do
   old <- get
-  let new = update <$> col <*> old
+  let new = update <$> (if cha == '\n' then reset else col) <*> old
       dif = old `diff` new
   when (Just Nothing `elem` dif)
     $ lift $ lift $ addStr $ A.setSGRCode [A.Reset]
@@ -123,6 +128,12 @@ showsColorStr setter
 instance Show ColorStr where
   show = flip (showsColorStr setColor6Level) $ A.setSGRCode [A.Reset]
 
+newtype LazyColorStr = LazyColorStr { colorCharsLazy :: [ColorChar] }
+instance Show LazyColorStr where
+  show = execWriter . flip runReaderT setColor6Level
+       . flip evalStateT (V2 Nothing Nothing) . mapM_ colorChar
+       . colorCharsLazy
+
 putColorStr :: ColorStr -> WithColor IO ()
 putColorStr = colorStr
 
@@ -141,4 +152,9 @@ monochroStrs = ColorStr . join . fmap (uncurry $ fmap . ColorChar)
 _24bitFullColorStream :: ColorStr
 _24bitFullColorStream = ColorStr
   $ (flip ColorChar ' ' . V2 Through . NewColor)
-  <$> [ C.sRGB24 r g b | r <- [0..255], g <- [0..255], b <- [0..255] ]
+  -- <$> [ C.sRGB24 r g b | r <- [0..255], g <- [0..255], b <- [0..255] ]
+  <$> [ C.sRGB24 r g b | r <- [0..255], g <- [255..255], b <- [255..255] ]
+
+test :: IO ()
+test = putStrLn $ take 10000 $ execWriter $ flip runReaderT setColor6Level
+     $ colorStr _24bitFullColorStream
