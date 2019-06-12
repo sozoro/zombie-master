@@ -126,7 +126,7 @@ colorStr = flip evalStateT (V2 Nothing Nothing) . mapM_ colorChar
 
 newtype ColorStrShowS = CSShowS { unCSShowS :: ColorStr }
 
-csShowS :: ColorSetter -> ColorStrStrict -> ShowS
+csShowS :: ColorSetter -> ColorStrShowS -> ShowS
 csShowS setter
   = flip execState id . flip runReaderT setter . colorStr . unCSShowS
 
