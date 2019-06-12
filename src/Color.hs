@@ -59,7 +59,7 @@ data ColorChar = ColorChar
   , cwcChar  :: !Char
   } deriving (Show, Eq)
 
-newtype ColorStr = ColorStr { colorChars :: [ColorChar] }
+type ColorStr = [ColorChar]
 
 class ColorShow a where
   colorShow :: a -> ColorStr
@@ -118,21 +118,25 @@ colorChar (ColorChar col cha) = do
   put new
 
 colorStr :: MonadAddCharStr m => ColorStr -> WithColor m ()
-colorStr = flip evalStateT (V2 Nothing Nothing)
-         . mapM_ colorChar . colorChars
+colorStr = flip evalStateT (V2 Nothing Nothing) . mapM_ colorChar
 
-showsColorStr :: ColorSetter -> ColorStr -> ShowS
-showsColorStr setter
-  = flip execState id . flip runReaderT setter . colorStr
+newtype ColorStrStrict = CSStrict { csStrict :: ColorStr }
 
-instance Show ColorStr where
-  show = flip (showsColorStr setColor6Level) $ A.setSGRCode [A.Reset]
+showsCSStrict :: ColorSetter -> ColorStrStrict -> ShowS
+showsCSStrict setter
+  = flip execState id . flip runReaderT setter . colorStr . csStrict
 
-newtype LazyColorStr = LazyColorStr { colorCharsLazy :: [ColorChar] }
-instance Show LazyColorStr where
-  show = execWriter . flip runReaderT setColor6Level
-       . flip evalStateT (V2 Nothing Nothing) . mapM_ colorChar
-       . colorCharsLazy
+instance Show ColorStrStrict where
+  show = flip (showsCSStrict setColor6Level) $ A.setSGRCode [A.Reset]
+
+newtype ColorStrLazy = CSLazy { csLazy :: ColorStr }
+
+showCSLazy :: ColorSetter -> ColorStrLazy -> String
+showCSLazy setter = execWriter . flip runReaderT setter . colorStr . csLazy
+
+instance Show ColorStrLazy where
+  show = (++ A.setSGRCode [A.Reset] ++ "\n")
+       . showCSLazy setColor6Level
 
 putColorStr :: ColorStr -> WithColor IO ()
 putColorStr = colorStr
@@ -147,14 +151,13 @@ withColor setter m = E.onException (runReaderT m setter)
                    $ putStrLn $ A.setSGRCode [A.Reset]
 
 monochroStrs :: [(FBChangeColor, String)] -> ColorStr
-monochroStrs = ColorStr . join . fmap (uncurry $ fmap . ColorChar)
+monochroStrs = join . fmap (uncurry $ fmap . ColorChar)
 
 _24bitFullColorStream :: ColorStr
-_24bitFullColorStream = ColorStr
-  $ (flip ColorChar ' ' . V2 Through . NewColor)
-  -- <$> [ C.sRGB24 r g b | r <- [0..255], g <- [0..255], b <- [0..255] ]
-  <$> [ C.sRGB24 r g b | r <- [0..255], g <- [255..255], b <- [255..255] ]
+_24bitFullColorStream = flip ColorChar ' ' . V2 Through . NewColor
+  <$> [ C.sRGB24 r g b | r <- [0..255], g <- [0..255], b <- [0..255] ]
 
 test :: IO ()
-test = putStrLn $ take 10000 $ execWriter $ flip runReaderT setColor6Level
-     $ colorStr _24bitFullColorStream
+test = withColor setColor24bit $ do
+  liftIO $ putStrLn $ take 10000 $ show $ CSLazy _24bitFullColorStream
+  liftIO $ putStrLn $ A.setSGRCode [A.Reset]

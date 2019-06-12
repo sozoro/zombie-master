@@ -9,6 +9,7 @@
 module Main where
 
 import Cyclic
+import Color (test)
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Reader
@@ -417,6 +418,7 @@ monochroStrs = ColorStr . join . fmap (uncurry $ fmap . ColorChar)
 class ColorShow a where
   colorShow :: a -> ColorStr
 
+{-
 main :: IO ()
 main = withColor setColor24bit $ do
   let hw = monochroStrs [ (fb1, "hello")
@@ -434,6 +436,9 @@ main = withColor setColor24bit $ do
     color2 = Just $ C.sRGB 0.678 0.019 0.274
     fb1 = Just $ V2 color1 color2
     fb2 = Just $ V2 color2 color1
+-}
+
+main = test
 
 fullColor :: ColorStr
 fullColor = ColorStr
