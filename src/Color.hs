@@ -76,6 +76,10 @@ instance MonadAddCharStr (State ShowS) where
   addChar cha = modify $ \f -> f . (cha :)
   addStr  str = modify $ \f -> f . (str ++)
 
+instance MonadAddCharStr (State String) where
+  addChar cha = modify (++ [cha])
+  addStr  str = modify (++ str)
+
 instance MonadAddCharStr (Writer String) where
   addChar cha = tell [cha]
   addStr  str = tell str
@@ -120,7 +124,7 @@ colorChar (ColorChar col cha) = do
 colorStr :: MonadAddCharStr m => ColorStr -> WithColor m ()
 colorStr = flip evalStateT (V2 Nothing Nothing) . mapM_ colorChar
 
-newtype ColorStrStrict = CSStrict { csStrict :: ColorStr }
+newtype ColorStrShowS = CSShowS { csShowS :: ColorStr }
 
 showsCSStrict :: ColorSetter -> ColorStrStrict -> ShowS
 showsCSStrict setter
