@@ -20,6 +20,7 @@ module Color
   , lineFeed
   , colorUnlines
   , monochroStrs
+  , addLeft
 
   , MonadAddCharStr (..)
   , colorChar
@@ -90,8 +91,8 @@ reset :: FBChangeColor
 reset = V2 Reset Reset
 
 data ColorChar = ColorChar
-  { cwcColor :: !FBChangeColor
-  , cwcChar  :: !Char
+  { ccColor :: !FBChangeColor
+  , ccChar  :: !Char
   } deriving (Show, Eq)
 
 type ColorStr = [ColorChar]
@@ -107,6 +108,10 @@ colorUnlines = concatMap (++ [lineFeed])
 
 monochroStrs :: [(FBChangeColor, String)] -> ColorStr
 monochroStrs = join . fmap (uncurry $ fmap . ColorChar)
+
+addLeft :: String -> ColorStr -> ColorStr
+addLeft str []         = map (ColorChar reset)        str
+addLeft str ccs@(cc:_) = map (ColorChar $ ccColor cc) str ++ ccs
 
 class ColorShow a where
   colorShow :: a -> ColorStr
