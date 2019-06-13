@@ -64,31 +64,87 @@ instance ColorShow Zombie where
   colorShow Empty        = [space]
   colorShow (Zombie p d) = colorShow p ++ monochroStrs [(through, show d)]
 
+fillL :: Int -> ColorStr -> ColorStr
+fillL n colStr = replicate (n - length colStr) ' ' `addLeft` colStr
+
+fillR :: Int -> ColorStr -> ColorStr
+fillR n colStr = colStr ++ replicate (n - length colStr)
+                 (ColorChar (V2 Through Through) ' ')
+
+maxLength :: M.Matrix [a] -> Int
+maxLength = foldr max 0 . fmap length
+
+fillCMR :: Int -> M.Matrix ColorStr -> M.Matrix ColorStr
+fillCMR n = fmap $ fillR n
+
+fillCML :: Int -> M.Matrix ColorStr -> M.Matrix ColorStr
+fillCML n = fmap $ fillL n
+
+fillMaxCMR :: M.Matrix ColorStr -> M.Matrix ColorStr
+fillMaxCMR m = fillCMR (maxLength m) m
+
+fillMaxCML :: M.Matrix ColorStr -> M.Matrix ColorStr
+fillMaxCML m = fillCML (maxLength m) m
+
+addLFs :: M.Matrix ColorStr -> M.Matrix ColorStr
+addLFs m = m M.<|> M.colVector (V.replicate (M.nrows m) [lineFeed])
+
+frame :: M.Matrix ColorStr -> M.Matrix ColorStr
+frame m = left M.<|> (horiBar M.<-> m M.<-> horiBar) M.<|> right
+  where
+    frameColor      = V2 (NewColor $ C.sRGB 0.419 0.776 1) Reset
+    frameSpaceColor = V2 Reset                             Reset
+    f c             = ColorChar frameColor      c
+    s               = ColorChar frameSpaceColor ' '
+    vertBar         = M.colVector $ V.replicate (M.nrows m) [s, f '│', s]
+    horiBar         = M.rowVector $ V.replicate (M.ncols m)
+                    $ replicate (maxLength m) $ f '─'
+    cornerL c       = M.colVector $ V.singleton [s,     f c, f '─']
+    cornerR c       = M.colVector $ V.singleton [f '─', f c, s    ]
+    left            = cornerL '┌' M.<-> vertBar M.<-> cornerL '└'
+    right           = cornerR '┐' M.<-> vertBar M.<-> cornerR '┘'
+
+prettyColorMatrix :: M.Matrix ColorStr -> ColorStr
+prettyColorMatrix m = concat $ addLFs
+  $ vertIx M.<|> fillMaxCMR (horiIx M.<-> framed)
+  where
+    framed          = frame $ fillCMR (succ $ length $ show $ M.ncols m) m
+    indexColor      = V2 (NewColor $ C.sRGB 0.678 0.019 0.274) Reset
+    indexSpaceColor = V2 Reset                                 Reset
+    index str       = monochroStrs [(indexColor, str)]
+    vertIx' = fmap (index . show) $ M.colVector $ V.enumFromTo 1 $ M.nrows m
+    horiIx' = fmap (index . show) $ M.rowVector $ V.enumFromTo 1 $ M.ncols m
+    spcN n  = M.colVector $ V.replicate n $ [ColorChar indexSpaceColor ' ']
+    horiIx  = spcN 1 M.<|> horiIx' M.<|> spcN 1
+    vertIx  = fillMaxCML $ spcN 2 M.<-> vertIx' M.<-> spcN 1
+
+-- TODO: Matrix (Matrix ColorStr)
+-- TODO: vertical fill
+
+{-
 prettyColorMatrix :: ColorShow a
                   => FBChangeColor -> FBChangeColor
                   -> M.Matrix a -> ColorStr
 prettyColorMatrix c1 c2 m = colorUnlines $
-     [ replicate (rowMax + 2) ' ' `addLeft` concatMap
+     [ replicate (rowMax + 3) ' ' `addLeft` concatMap
        (\i -> fillR mx $ monochroStrs [(c2, show i)]) [1..M.ncols m] ]
   ++ [ corner '┌' '┐' ]
   ++ [ fillL rowMax (monochroStrs [(c2, show r)])
-       ++ monochroStrs [(c1, "│ ")]
+       ++ monochroStrs [(c1, " │ ")]
        ++ (concat $ fmap (\c -> fillR mx $ colorShow $ m M.! (r,c))
             [1..M.ncols m])
-       ++ monochroStrs [(c1, " │")]
+       ++ monochroStrs [(c1, " │ ")]
      | r <- [1..M.nrows m] ]
   ++ [ corner '└' '┘' ]
   where
     rowMax         = length $ show $ M.nrows m
     mx             = (foldr max 0 $ fmap (length . colorShow) m)
                        `max` succ (length $ show $ M.ncols m)
-    fillL k colStr = foldr addLeft colStr $ replicate (k - length colStr) " "
-    fillR k colStr = colStr ++ replicate (k - length colStr)
-                     (ColorChar (V2 Through Through) ' ')
-    corner l r     = fillL rowMax []
-                   ++ [ColorChar c1 l]
-                   ++ replicate (M.ncols m * mx + 2) (ColorChar c1 '─')
-                   ++ [ColorChar c1 r]
+    corner l r     = replicate (rowMax + 1) ' '
+           `addLeft` [ColorChar c1 l]
+                  ++ replicate (M.ncols m * mx + 2) (ColorChar c1 '─')
+                  ++ [ColorChar c1 r]
+-}
 
 modifyL :: Monad m
         => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
@@ -312,9 +368,9 @@ main = withColor setColor24bit $ do
                         , (reset, " ")
                         , (fb2,   "world")
                         ]
-  z <- prettyColorMatrix (V2 color1 Reset) (V2 color2 Reset)
-       <$> liftIO (initialMatrix 10 10)
-  putColorStrLn hw
+  z <- prettyColorMatrix
+       <$> fmap colorShow <$> liftIO (initialMatrix 10 10)
+  -- putColorStrLn hw
   putColorStrLn z
   where
     color1 = NewColor $ C.sRGB 0.419 0.776 1
