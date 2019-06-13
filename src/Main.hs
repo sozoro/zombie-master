@@ -68,10 +68,12 @@ prettyColorMatrix :: ColorShow a
                   => FBChangeColor -> FBChangeColor
                   -> M.Matrix a -> ColorStr
 prettyColorMatrix c1 c2 m = colorUnlines $
-     [ corner '┌' '┐' ]
-  ++ [ fillR rowMax (monochroStrs [(c2, show r)])
+     [ replicate (rowMax + 2) ' ' `addLeft` concatMap
+       (\i -> fillR mx $ monochroStrs [(c2, show i)]) [1..M.ncols m] ]
+  ++ [ corner '┌' '┐' ]
+  ++ [ fillL rowMax (monochroStrs [(c2, show r)])
        ++ monochroStrs [(c1, "│ ")]
-       ++ (concat $ fmap (\c -> fillL mx $ colorShow $ m M.! (r,c))
+       ++ (concat $ fmap (\c -> fillR mx $ colorShow $ m M.! (r,c))
             [1..M.ncols m])
        ++ monochroStrs [(c1, " │")]
      | r <- [1..M.nrows m] ]
@@ -79,12 +81,14 @@ prettyColorMatrix c1 c2 m = colorUnlines $
   where
     rowMax         = length $ show $ M.nrows m
     mx             = (foldr max 0 $ fmap (length . colorShow) m)
-                       `max` length (show $ M.ncols m)
+                       `max` succ (length $ show $ M.ncols m)
     fillL k colStr = foldr addLeft colStr $ replicate (k - length colStr) " "
-    fillR k colStr = str ++ replicate (k - length colStr)
+    fillR k colStr = colStr ++ replicate (k - length colStr)
                      (ColorChar (V2 Through Through) ' ')
-    corner l r     = fillL rowMax []                       ++ [ColorChar c1 l]
-                   ++ replicate (M.ncols m * mx + 2) space ++ [ColorChar c1 r]
+    corner l r     = fillL rowMax []
+                   ++ [ColorChar c1 l]
+                   ++ replicate (M.ncols m * mx + 2) (ColorChar c1 '─')
+                   ++ [ColorChar c1 r]
 
 modifyL :: Monad m
         => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
