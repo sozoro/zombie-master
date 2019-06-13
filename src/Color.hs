@@ -1,22 +1,57 @@
+{-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TupleSections #-}
 
-module Color where
+module Color
+  ( V2 (..)
+
+  , Color
+  , ChangeColor (..)
+  , FBColorDiff
+  , FBChangeColor
+  , through
+  , reset
+
+  , ColorChar (..)
+  , ColorStr
+  , ColorShow (..)
+  , space
+  , lineFeed
+  , colorUnlines
+  , monochroStrs
+
+  , MonadAddCharStr (..)
+  , colorChar
+  , colorStr
+
+  , WithColor
+  , ColorSetter
+  , setColor24bit
+  , setColor6Level
+
+  , ColorStrShowS (..)
+  , csShowS
+
+  , ColorStrLazy (..)
+  , csLazy
+
+  , putColorStr
+  , putColorStrLn
+  , withColor
+  ) where
 
 import Cyclic
-import Control.Applicative
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Writer.Lazy
 import Data.Foldable (asum,elem)
-import Data.Maybe (listToMaybe,maybeToList,catMaybes)
-import qualified Control.Exception         as E
-import qualified Data.Colour.SRGB          as C
-import qualified Data.Colour.RGBSpace      as C
-import qualified System.Console.ANSI       as A
-import qualified System.Console.ANSI.Types as A
+import Data.Maybe    (maybeToList)
+import qualified Control.Exception    as E
+import qualified Data.Colour.SRGB     as C
+import qualified Data.Colour.RGBSpace as C
+import qualified System.Console.ANSI  as A
 
 data V2 a = V2 { v2x :: !a , v2y :: !a } deriving (Show, Eq)
 instance Functor V2 where
@@ -60,6 +95,18 @@ data ColorChar = ColorChar
   } deriving (Show, Eq)
 
 type ColorStr = [ColorChar]
+
+space :: ColorChar
+space = ColorChar reset ' '
+
+lineFeed :: ColorChar
+lineFeed = ColorChar reset '\n'
+
+colorUnlines :: [ColorStr] -> ColorStr
+colorUnlines = concatMap (++ [lineFeed])
+
+monochroStrs :: [(FBChangeColor, String)] -> ColorStr
+monochroStrs = join . fmap (uncurry $ fmap . ColorChar)
 
 class ColorShow a where
   colorShow :: a -> ColorStr
@@ -153,14 +200,6 @@ withColor :: ColorSetter -> WithColor IO a -> IO a
 withColor setter m = E.onException (runReaderT m setter)
                    $ putStrLn $ A.setSGRCode [A.Reset]
 
-monochroStrs :: [(FBChangeColor, String)] -> ColorStr
-monochroStrs = join . fmap (uncurry $ fmap . ColorChar)
-
 _24bitFullColorStream :: ColorStr
 _24bitFullColorStream = flip ColorChar ' ' . V2 Through . NewColor
   <$> [ C.sRGB24 r g b | r <- [0..255], g <- [0..255], b <- [0..255] ]
-
-test :: IO ()
-test = withColor setColor24bit $ do
-  liftIO $ putStrLn $ take 10000 $ show $ CSLazy _24bitFullColorStream
-  liftIO $ putStrLn $ A.setSGRCode [A.Reset]

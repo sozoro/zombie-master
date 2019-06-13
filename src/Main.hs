@@ -8,8 +8,8 @@
 
 module Main where
 
+import Color
 import Cyclic
-import Color (test)
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Reader
@@ -28,6 +28,10 @@ import qualified System.Random.MWC         as R
 data Clockwise = L | U | R | D deriving (Eq, Enum, Bounded, Ord)
 instance Cyclic Clockwise where
 instance Show   Clockwise where
+  -- show L = "⬅"
+  -- show U = "⬆"
+  -- show R = "➡"
+  -- show D = "⬇"
   show L = "←"
   show U = "↑"
   show R = "→"
@@ -45,7 +49,7 @@ toColor Red  = C.sRGB24 255 0   171
 
 instance ColorShow Player where
   colorShow p = monochroStrs
-    [(Just $ V2 (Just $ toColor p) Nothing, show p)]
+    [(V2 (NewColor $ toColor p) Reset, show p)]
 
 data Zombie
   = Empty
@@ -57,33 +61,24 @@ instance Show Zombie where
   show Empty        = "  "
   show (Zombie p d) = show p ++ show d
 instance ColorShow Zombie where
-  colorShow Empty        = ColorStr [space]
-  colorShow (Zombie p d) = colorShow p `addCS` monochroStrs [(through, show d)]
-
-space :: ColorChar
-space = ColorChar Nothing ' '
-
-colorUnlines :: [ColorStr] -> ColorStr
-colorUnlines = ColorStr . f . fmap colorChars
-  where
-    f []       = []
-    f (xs:xss) = xs ++ (ColorChar Nothing '\n') : f xss
-
-colorUnwords :: [ColorStr] -> ColorStr
-colorUnwords = ColorStr . join . fmap colorChars
+  colorShow Empty        = [space]
+  colorShow (Zombie p d) = colorShow p ++ monochroStrs [(through, show d)]
 
 prettyColorMatrix :: ColorShow a
-                  => ColoredOrNot -> ColoredOrNot
+                  => FBChangeColor -> FBChangeColor
                   -> M.Matrix a -> ColorStr
-prettyColorMatrix c1 c2 m = colorUnlines
-  [ monochroStrs [(c1, "| ")] `addCS`
-    (colorUnwords $ fmap (\c -> fillS mx $ colorShow $ m M.! (r,c))
-     [1..M.ncols m])
-  | r <- [1..M.nrows m] ]
+prettyColorMatrix c1 c2 m = colorUnlines $
+     [ monochroStrs [(c1, "┌ ")] ++ spaces ++ monochroStrs [(c1, " ┐")] ]
+  ++ [ monochroStrs [(c1, "│ ")] ++
+       (concat $ fmap (\c -> fillS mx $ colorShow $ m M.! (r,c))
+        [1..M.ncols m])
+       ++ monochroStrs [(c1, " │")]
+     | r <- [1..M.nrows m] ]
+  ++ [ monochroStrs [(c1, "└ ")] ++ spaces ++ monochroStrs [(c1, " ┘")] ]
   where
-    mx = foldr max 0 $ fmap (length . colorChars . colorShow) m
-    fillS k colStr =
-      underCS (replicate (k - length (colorChars colStr)) space ++) colStr
+    mx             = foldr max 0 $ fmap (length . colorShow) m
+    fillS k colStr = replicate (k - length colStr) space ++ colStr
+    spaces         = replicate (M.ncols m * mx) space
 
 modifyL :: Monad m
         => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
@@ -301,149 +296,18 @@ monoColor = initialMatrix 10 10 >>= \m ->
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
 
 
-data V2 a = V2 { v2x :: !a , v2y :: !a } deriving (Show, Eq)
-instance Functor V2 where
-  fmap f (V2 fore back) = V2 (f fore) (f back)
-instance Applicative V2 where
-  pure a            = V2 a     a
-  V2 f g <*> V2 x y = V2 (f x) (g y)
-instance Foldable V2 where
-  foldr f z (V2 x y) = f x $ f y z
-instance Semigroup a => Semigroup (V2 a) where
-  V2 x1 y1 <> V2 x2 y2 = V2 (x1 <> x2) (y1 <> y2)
-instance Monoid a => Monoid (V2 a) where
-  mempty = V2 mempty mempty
-
-fb :: V2 A.ConsoleLayer
-fb = V2 A.Foreground A.Background
-
-type Color        = C.Colour Float
-type ColorDiff    = Maybe Color
-type FBColorDiff  = V2 ColorDiff
-type ColoredOrNot = Maybe FBColorDiff
-
-data ColorChar = ColorChar
-  { cwcColor :: !ColoredOrNot
-  , cwcChar  :: !Char
-  } deriving (Show, Eq)
-
-through :: ColoredOrNot
-through = Just $ V2 Nothing Nothing
-
-newtype ColorStr = ColorStr { colorChars :: [ColorChar] }
-
-underCS :: ([ColorChar] -> [ColorChar]) -> ColorStr -> ColorStr
-underCS f (ColorStr ls) = ColorStr $ f ls
-
-addCS :: ColorStr -> ColorStr -> ColorStr
-addCS cs = underCS (colorChars cs ++)
-
-class Monad m => MonadAddCharStr m where
-  addChar :: Char   -> m ()
-  addStr  :: String -> m ()
-
-instance MonadAddCharStr IO where
-  addChar = putChar
-  addStr  = putStr
-
-instance MonadAddCharStr (State ShowS) where
-  addChar cha = modify $ \f -> f . (cha :)
-  addStr  str = modify $ \f -> f . (str ++)
-
-type ColorSetter = A.ConsoleLayer -> Color -> A.SGR
-type WithColor m a = ReaderT ColorSetter m a
-
-setColor24bit :: ColorSetter
-setColor24bit = A.SetRGBColor
-
-toSRGB6Level :: (RealFrac b, Floating b)
-             => C.Colour b -> C.RGB (IsCyclic FinSix)
-toSRGB6Level = C.toSRGBBounded
-
-setColor6Level :: ColorSetter
-setColor6Level layer color =
-  A.SetPaletteColor layer $ A.xterm6LevelRGB r g b
-  where
-    C.RGB r g b = fromIntegral <$> toSRGB6Level color
-
-colorChar :: MonadAddCharStr m
-          => ColorChar -> StateT FBColorDiff (ReaderT ColorSetter m) ()
-colorChar (ColorChar col cha) = do
-  old <- get
-  let new       = update (if cha == '\n' then Nothing else col) old
-  let diffCol   = old `diff` new
-  when (diffCol /= fmap (const Nothing) old) $ do
-    let changings = asum $ maybeToList
-                        <$> ((\a -> fmap (a,)) <$> fb <*> fmap join diffCol)
-    setter <- lift ask
-    lift $ lift $ addStr $ A.setSGRCode $ uncurry setter <$> changings
-    put new
-  lift $ lift $ addChar cha
-
-update :: Alternative f => Maybe (V2 (f a)) -> V2 (f a) -> V2 (f a)
-update Nothing   = const $ V2 empty empty
-update (Just fb) = ((<|>) <$> fb <*>)
-
-diff :: (Applicative f, Eq a) => f a -> f a -> f (Maybe a)
-diff x = (diff' <$> x <*>)
-  where
-    diff' c d = if c == d then Nothing else Just d
-
-colorStr :: MonadAddCharStr m => ColorStr -> WithColor m ()
-colorStr = flip evalStateT (V2 Nothing Nothing)
-         . mapM_ colorChar . colorChars
-
-showsColorStr :: ColorSetter -> ColorStr -> ShowS
-showsColorStr setter
-  = flip execState id . flip runReaderT setter . colorStr
-
-instance Show ColorStr where
-  show = flip (showsColorStr setColor6Level) $ A.setSGRCode [A.Reset]
-
-putColorStr :: ColorStr -> WithColor IO ()
-putColorStr = colorStr
-
-putColorStrLn :: ColorStr -> WithColor IO ()
-putColorStrLn sc = do
-  colorStr sc
-  liftIO $ putStrLn $ A.setSGRCode [A.Reset]
-
-withColor :: ColorSetter -> WithColor IO a -> IO a
-withColor setter m = E.onException (runReaderT m setter)
-                   $ putStrLn $ A.setSGRCode [A.Reset]
-
-monochroStrs :: [(ColoredOrNot, String)] -> ColorStr
-monochroStrs = ColorStr . join . fmap (uncurry $ fmap . ColorChar)
-
-class ColorShow a where
-  colorShow :: a -> ColorStr
-
-{-
 main :: IO ()
 main = withColor setColor24bit $ do
-  let hw = monochroStrs [ (fb1, "hello")
-                        , (Nothing, " ")
-                        , (fb2, "world")
+  let hw = monochroStrs [ (fb1,   "hello")
+                        , (reset, " ")
+                        , (fb2,   "world")
                         ]
-  let smooze = ColorStr $ take 5000 $ drop (256 ^ 3 `div` 2)
-                        $ colorChars $ fullColor
-  z <- prettyColorMatrix fb1 fb2 <$> liftIO (initialMatrix 10 10)
-  -- liftIO $ print smooze
+  z <- prettyColorMatrix (V2 color1 Reset) (V2 color2 Reset)
+       <$> liftIO (initialMatrix 10 10)
+  putColorStrLn hw
   putColorStrLn z
-  putColorStrLn $ prettyColorMatrix fb1 fb2 $ fill (Zombie Red D) 10 10
   where
-    color1 = Just $ C.sRGB 0.419 0.776 1
-    color2 = Just $ C.sRGB 0.678 0.019 0.274
-    fb1 = Just $ V2 color1 color2
-    fb2 = Just $ V2 color2 color1
--}
-
-main = test
-
-fullColor :: ColorStr
-fullColor = ColorStr
-  $ (flip ColorChar ' ' . Just . V2 Nothing . Just . uncurry3 C.sRGB24)
-  <$> [ (r, g, b) | r <- [0..255], g <- [0..255], b <- [0..255] ]
-
-uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
-uncurry3 f (a, b, c) = f a b c
+    color1 = NewColor $ C.sRGB 0.419 0.776 1
+    color2 = NewColor $ C.sRGB 0.678 0.019 0.274
+    fb1 = V2 color1 color2
+    fb2 = V2 color2 color1
