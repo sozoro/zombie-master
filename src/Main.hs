@@ -101,19 +101,52 @@ frame m = left M.<|> (horiBar M.<-> m M.<-> horiBar) M.<|> right
     left            = cornerL '┌' M.<-> vertBar M.<-> cornerL '└'
     right           = cornerR '┐' M.<-> vertBar M.<-> cornerR '┘'
 
-safeSubmatrix :: Int -> Int -> Int -> Int -> M.Matrix a -> M.Matrix a
-safeSubmatrix r1 r2 c1 c2 m = undefined
+{-
+safeSubmatrix :: Int -> Int -> Int -> Int -> M.Matrix a -> Maybe (M.Matrix a)
+safeSubmatrix r1 r2 c1 c2 m
+  | r1 < 1  || r1 > rm = Nothing
+  | c1 < 1  || c1 > cm = Nothing
+  | r2 < r1 || r2 > rm = Nothing
+  | c2 < c1 || c2 > cm = Nothing
+  | otherwise = Just $ M.submatrix r1 r2 c1 c2 m
   where
-    z  = M.rowVector V.empty
+    rm = M.nrows m
+    cm = M.ncols m
+-}
+
+safeSubmatrix :: Int -> Int -> Int -> Int -> M.Matrix a -> Maybe (M.Matrix a)
+safeSubmatrix r1' r2 c1' c2 m
+  | r2 < r1 || r2 > rm = Nothing
+  | c2 < c1 || c2 > cm = Nothing
+  | otherwise = Just $ M.submatrix r1 r2 c1 c2 m
+  where
+    rm = M.nrows m
+    cm = M.ncols m
+    r1 = range 1 rm r1'
+    c1 = range 1 cm c1'
+    range d u x | x < d = d | x > u = u | otherwise = x
+
+type FourBlocks a = (a,a,a,a)
+
+safeSplitBlocks :: Int -> Int -> M.Matrix a -> FourBlocks (Maybe (M.Matrix a))
+safeSplitBlocks r c m =
+  ( safeSubmatrix 1     r  1 c m , safeSubmatrix 1     r  (c+1) cm m
+  , safeSubmatrix (r+1) rm 1 c m , safeSubmatrix (r+1) rm (c+1) cm m )
+  where
     rm = M.nrows m
     cm = M.ncols m
 
-safeSplitBlocks :: Int -> Int -> M.Matrix a
-                -> (M.Matrix a, M.Matrix a, M.Matrix a, M.Matrix a)
-safeSplitBlocks r c m = undefined
-  where
-    rm = M.nrows m
-    cm = M.ncols m
+maybeJoinH :: Maybe (M.Matrix a) -> Maybe (M.Matrix a) -> Maybe (M.Matrix a)
+maybeJoinH mm1 mm2 = liftA2 (M.<|>) mm1 mm2 <|> mm1 <|> mm2
+
+maybeJoinV :: Maybe (M.Matrix a) -> Maybe (M.Matrix a) -> Maybe (M.Matrix a)
+maybeJoinV mm1 mm2 = liftA2 (M.<->) mm1 mm2 <|> mm1 <|> mm2
+
+joinMaybeBlocks :: FourBlocks (Maybe (M.Matrix a)) -> Maybe (M.Matrix a)
+joinMaybeBlocks (Just m1, Just m2, Just m3, Just m4) =
+  Just $ M.joinBlocks (m1, m2, m3, m4)
+joinMaybeBlocks (mm1,     mm2,     mm3,     mm4)     =
+  (mm1 `maybeJoinH` mm2) `maybeJoinV` (mm3 `maybeJoinH` mm4)
 
 prettyColorMatrix :: M.Matrix ColorStr -> ColorStr
 prettyColorMatrix m = concat $ addLFs
@@ -379,12 +412,15 @@ main = withColor setColor24bit $ do
                         , (reset, " ")
                         , (fb2,   "world")
                         ]
-  (m,_,_,_) <- liftIO $ M.splitBlocks 10 10 <$> initialMatrix 10 10
-  -- z <- prettyColorMatrix
-  --      <$> fmap colorShow <$> liftIO (initialMatrix 10 10)
+  initMatrix <- liftIO $ initialMatrix 10 10
+  -- let m = initMatrix
+  let m = maybe (M.rowVector $ V.empty) id
+        -- $ (\(x,_,_,_) -> x) $ safeSplitBlocks 1 1 initMatrix
+        $ joinMaybeBlocks $ safeSplitBlocks (-1) 0 initMatrix
   let z = prettyColorMatrix $ fmap colorShow m
   -- putColorStrLn hw
-  putColorStrLn z
+  -- putColorStrLn z
+  liftIO $ print m
   where
     color1 = NewColor $ C.sRGB 0.419 0.776 1
     color2 = NewColor $ C.sRGB 0.678 0.019 0.274
