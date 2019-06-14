@@ -104,6 +104,20 @@ frame m = left M.<|> (horiBar M.<-> m M.<-> horiBar) M.<|> right
     left            = cornerL '┌' M.<-> vertBar M.<-> cornerL '└'
     right           = cornerR '┐' M.<-> vertBar M.<-> cornerR '┘'
 
+safeSubmatrix :: Int -> Int -> Int -> Int -> M.Matrix a -> M.Matrix a
+safeSubmatrix r1 r2 c1 c2 m = undefined
+  where
+    z  = M.rowVector V.empty
+    rm = M.nrows m
+    cm = M.ncols m
+
+safeSplitBlocks :: Int -> Int -> M.Matrix a
+                -> (M.Matrix a, M.Matrix a, M.Matrix a, M.Matrix a)
+safeSplitBlocks r c m = undefined
+  where
+    rm = M.nrows m
+    cm = M.ncols m
+
 prettyColorMatrix :: M.Matrix ColorStr -> ColorStr
 prettyColorMatrix m = concat $ addLFs
   $ vertIx M.<|> fillMaxCMR (horiIx M.<-> framed)
@@ -368,8 +382,10 @@ main = withColor setColor24bit $ do
                         , (reset, " ")
                         , (fb2,   "world")
                         ]
-  z <- prettyColorMatrix
-       <$> fmap colorShow <$> liftIO (initialMatrix 10 10)
+  (m,_,_,_) <- liftIO $ M.splitBlocks 10 10 <$> initialMatrix 10 10
+  -- z <- prettyColorMatrix
+  --      <$> fmap colorShow <$> liftIO (initialMatrix 10 10)
+  let z = prettyColorMatrix $ fmap colorShow m
   -- putColorStrLn hw
   putColorStrLn z
   where
