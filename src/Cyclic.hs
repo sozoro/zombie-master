@@ -29,7 +29,7 @@ class (Enum a, Bounded a) => Cyclic a where
                | otherwise                              = pred a
 
   cyclicToEnum :: Int -> a
-  cyclicToEnum i = toEnum $ i `mod` length ([minBound .. maxBound :: a])
+  cyclicToEnum i = toEnum $ i `mod` length [minBound .. maxBound :: a]
 
 data IsCyclic a where
   IsCyclic :: Cyclic a => a -> IsCyclic a
@@ -54,8 +54,8 @@ instance Show a => Show (IsCyclic a) where
   show = show . isCyclic
 
 instance Cyclic a => Bounded (IsCyclic a) where
-  minBound = IsCyclic $ minBound
-  maxBound = IsCyclic $ maxBound
+  minBound = IsCyclic minBound
+  maxBound = IsCyclic maxBound
 
 instance Cyclic a => Enum (IsCyclic a) where
   toEnum    = IsCyclic . toEnum

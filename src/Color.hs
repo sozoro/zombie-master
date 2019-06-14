@@ -1,5 +1,4 @@
 {-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -107,7 +106,7 @@ colorUnlines :: [ColorStr] -> ColorStr
 colorUnlines = concatMap (++ [lineFeed])
 
 monochroStrs :: [(FBChangeColor, String)] -> ColorStr
-monochroStrs = join . fmap (uncurry $ fmap . ColorChar)
+monochroStrs = (uncurry (fmap . ColorChar) =<<)
 
 addLeft :: String -> ColorStr -> ColorStr
 addLeft str []         = map (ColorChar reset)        str
@@ -133,8 +132,8 @@ instance MonadAddCharStr (State String) where
   addStr  str = modify (++ str)
 
 instance MonadAddCharStr (Writer String) where
-  addChar cha = tell [cha]
-  addStr  str = tell str
+  addChar = tell . (:[])
+  addStr  = tell
 
 type ColorSetter = A.ConsoleLayer -> Color -> A.SGR
 type WithColor m a = ReaderT ColorSetter m a
@@ -168,7 +167,7 @@ colorChar (ColorChar col cha) = do
   let fb        = V2 A.Foreground A.Background
       changings = asum $ maybeToList
                       <$> ((\a -> fmap (a,)) <$> fb <*> fmap join dif)
-  when (not $ null changings)
+  unless (null changings)
     $ lift $ lift $ addStr $ A.setSGRCode $ uncurry setter <$> changings
   lift $ lift $ addChar cha
   put new
