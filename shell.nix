@@ -11,5 +11,6 @@ let
                      [ ]);
 in
   developPackage.overrideAttrs (oldAttrs: with nixpkgs; {
-    buildInputs = oldAttrs.buildInputs ++ [ hoogle ];
+    buildInputs = oldAttrs.buildInputs
+      ++ [ hoogle haskellPackages.hlint ];
   })
