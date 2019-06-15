@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 
 module Main where
 
@@ -12,6 +13,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Foldable (asum)
+import Data.List (sort)
 import Data.Maybe (listToMaybe,maybeToList,catMaybes)
 import Data.Typeable (Typeable)
 import qualified Control.Exception         as E
@@ -115,15 +117,16 @@ safeSubmatrix r1 r2 c1 c2 m
 -}
 
 safeSubmatrix :: Int -> Int -> Int -> Int -> M.Matrix a -> Maybe (M.Matrix a)
-safeSubmatrix r1' r2 c1' c2 m
-  | r2 < r1 || r2 > rm = Nothing
-  | c2 < c1 || c2 > cm = Nothing
+safeSubmatrix r1' r2' c1' c2' m
+  | r2' < r1' || c2' < c1' = Nothing
   | otherwise = Just $ M.submatrix r1 r2 c1 c2 m
   where
     rm = M.nrows m
     cm = M.ncols m
-    r1 = range 1 rm r1'
-    c1 = range 1 cm c1'
+    r1 = range 1  rm r1'
+    r2 = range r1 rm r2'
+    c1 = range 1  cm c1'
+    c2 = range c1 cm c2'
     range d u x | x < d = d | x > u = u | otherwise = x
 
 type FourBlocks a = (a,a,a,a)
@@ -136,17 +139,43 @@ safeSplitBlocks r c m =
     rm = M.nrows m
     cm = M.ncols m
 
-maybeJoinH :: Maybe (M.Matrix a) -> Maybe (M.Matrix a) -> Maybe (M.Matrix a)
-maybeJoinH mm1 mm2 = liftA2 (M.<|>) mm1 mm2 <|> mm1 <|> mm2
+joinMaybeH :: Maybe (M.Matrix a) -> Maybe (M.Matrix a) -> Maybe (M.Matrix a)
+joinMaybeH mm1 mm2 = liftA2 (M.<|>) mm1 mm2 <|> mm1 <|> mm2
 
-maybeJoinV :: Maybe (M.Matrix a) -> Maybe (M.Matrix a) -> Maybe (M.Matrix a)
-maybeJoinV mm1 mm2 = liftA2 (M.<->) mm1 mm2 <|> mm1 <|> mm2
+joinMaybeV :: Maybe (M.Matrix a) -> Maybe (M.Matrix a) -> Maybe (M.Matrix a)
+joinMaybeV mm1 mm2 = liftA2 (M.<->) mm1 mm2 <|> mm1 <|> mm2
 
 joinMaybeBlocks :: FourBlocks (Maybe (M.Matrix a)) -> Maybe (M.Matrix a)
 joinMaybeBlocks (Just m1, Just m2, Just m3, Just m4) =
   Just $ M.joinBlocks (m1, m2, m3, m4)
 joinMaybeBlocks (mm1,     mm2,     mm3,     mm4)     =
-  (mm1 `maybeJoinH` mm2) `maybeJoinV` (mm3 `maybeJoinH` mm4)
+  (mm1 `joinMaybeH` mm2) `joinMaybeV` (mm3 `joinMaybeH` mm4)
+
+injectLines :: Int -> Int -> M.Matrix ColorStr -> Maybe (M.Matrix ColorStr)
+injectLines r c m = joinMaybeBlocks (tl, vl r, hl c, cr) 
+  where
+    lineColor      = V2 (NewColor $ C.sRGB 0.419 0.776 1) Reset
+    -- lineSpaceColor = V2 Reset                             Reset
+    mx = maxLength m
+    ho = replicate mx $ ColorChar lineColor '─'
+    ve = monochroStrs [(lineColor, " │ ")]
+    cr = Just $ M.rowVector $ V.singleton $ monochroStrs [(lineColor, "─┼─")]
+    hl n | n <= 0    = Nothing
+         | otherwise = Just $ M.rowVector $ V.replicate n ho
+    vl n | n <= 0    = Nothing
+         | otherwise = Just $ M.colVector $ V.replicate n ve
+    (tl,tr,bl,br) = safeSplitBlocks r c m
+
+-- joinMaybeH' :: Maybe (Matrix a) -> Maybe (Matrix a) -> Maybe (Matrix a)
+
+injectLines' :: [Int] -> [Int] -> M.Matrix a -> Maybe (M.Matrix a)
+injectLines' rs cs m = undefined
+  where
+    ps  = foldr (\i f j -> (succ i, j) : f i) (\j -> [(1, j)])
+    rps = ps (sort rs) $ M.nrows m
+    cps = ps (sort cs) $ M.ncols m
+    sms = fmap (\(r1,r2)
+            -> fmap (\(c1,c2) -> safeSubmatrix r1 r2 c1 c2 m) cps) rps
 
 prettyColorMatrix :: M.Matrix ColorStr -> ColorStr
 prettyColorMatrix m = concat $ addLFs
@@ -412,15 +441,17 @@ main = withColor setColor24bit $ do
                         , (reset, " ")
                         , (fb2,   "world")
                         ]
-  initMatrix <- liftIO $ initialMatrix 10 10
+  initMatrix <- liftIO $ initialMatrix 8 10
   -- let m = initMatrix
-  let m = maybe (M.rowVector $ V.empty) id
-        -- $ (\(x,_,_,_) -> x) $ safeSplitBlocks 1 1 initMatrix
-        $ joinMaybeBlocks $ safeSplitBlocks (-1) 0 initMatrix
-  let z = prettyColorMatrix $ fmap colorShow m
+  let colorMatrix = fmap colorShow initMatrix
+  let m = maybe (M.transpose colorMatrix) id
+        $ injectLines 10 5 $ fillMaxCMR colorMatrix
+  let z = concat $ addLFs m
   -- putColorStrLn hw
-  -- putColorStrLn z
-  liftIO $ print m
+  putColorStrLn z
+  -- liftIO $ print m
+  -- liftIO $ print $ maybe (M.transpose initMatrix) id
+  --        $ safeSubmatrix 2 10 2 2 initMatrix
   where
     color1 = NewColor $ C.sRGB 0.419 0.776 1
     color2 = NewColor $ C.sRGB 0.678 0.019 0.274
