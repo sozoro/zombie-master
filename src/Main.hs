@@ -168,14 +168,43 @@ injectLines r c m = joinMaybeBlocks (tl, vl r, hl c, cr)
 
 -- joinMaybeH' :: Maybe (Matrix a) -> Maybe (Matrix a) -> Maybe (Matrix a)
 
-injectLines' :: [Int] -> [Int] -> M.Matrix a -> Maybe (M.Matrix a)
+injectLines' :: [Int] -> [Int] -> M.Matrix ColorStr
+             -> Maybe (M.Matrix ColorStr)
 injectLines' rs cs m = undefined
   where
     ps  = foldr (\i f j -> (succ i, j) : f i) (\j -> [(1, j)])
+    rm  = M.nrows m
+    cm  = M.ncols m
     rps = ps (sort rs) $ M.nrows m
     cps = ps (sort cs) $ M.ncols m
     sms = fmap (\(r1,r2)
-            -> fmap (\(c1,c2) -> safeSubmatrix r1 r2 c1 c2 m) cps) rps
+            -> fmap (\(c1,c2) -> f r1 r2 c1 c2) cps) rps
+    -- f r1 r2 c1 c2
+    --   | r2 == 0 && c2 == 0 = cr
+    --   | r2 == 0            = hl (c2 - c1) M.<|> cr
+    --   | c2 == 0            = vl (r2 - r1) M.<-> cr
+    --   | otherwise = M.joinBlocks ( M.submatrix r1 r2 c1 c2 m
+    --                              , vl (r2 - r1)
+    --                              , hl (c2 - c1)
+    --                              , cr
+    --                              )
+    f r1 r2 c1 c2 = joinMaybeBlocks
+      ( safeSubmatrix r1 r2 c1 c2 m
+      , guard (r2 < M.nrows m || r1 > M.nrows m) >> vl (r2 - r1)
+      , guard (c2 < M.ncols m || c1 > M.ncols m) >> hl (c2 - c1)
+      , guard (r1 < r2 || c1 < c2) >> cr
+      )
+
+    lineColor      = V2 (NewColor $ C.sRGB 0.419 0.776 1) Reset
+    -- lineSpaceColor = V2 Reset                             Reset
+    mx = maxLength m
+    ho = replicate mx $ ColorChar lineColor '─'
+    ve = monochroStrs [(lineColor, " │ ")]
+    cr = Just $ M.rowVector $ V.singleton $ monochroStrs [(lineColor, "─┼─")]
+    hl n | n <= 0    = Nothing
+         | otherwise = Just $ M.rowVector $ V.replicate n ho
+    vl n | n <= 0    = Nothing
+         | otherwise = Just $ M.colVector $ V.replicate n ve
 
 prettyColorMatrix :: M.Matrix ColorStr -> ColorStr
 prettyColorMatrix m = concat $ addLFs
