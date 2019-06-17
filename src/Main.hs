@@ -103,19 +103,6 @@ frame m = left M.<|> (horiBar M.<-> m M.<-> horiBar) M.<|> right
     left            = cornerL '┌' M.<-> vertBar M.<-> cornerL '└'
     right           = cornerR '┐' M.<-> vertBar M.<-> cornerR '┘'
 
-{-
-safeSubmatrix :: Int -> Int -> Int -> Int -> M.Matrix a -> Maybe (M.Matrix a)
-safeSubmatrix r1 r2 c1 c2 m
-  | r1 < 1  || r1 > rm = Nothing
-  | c1 < 1  || c1 > cm = Nothing
-  | r2 < r1 || r2 > rm = Nothing
-  | c2 < c1 || c2 > cm = Nothing
-  | otherwise = Just $ M.submatrix r1 r2 c1 c2 m
-  where
-    rm = M.nrows m
-    cm = M.ncols m
--}
-
 safeSubmatrix :: Int -> Int -> Int -> Int -> M.Matrix a -> Maybe (M.Matrix a)
 safeSubmatrix r1' r2' c1' c2' m
   | r2' < r1' || c2' < c1' = Nothing
@@ -169,9 +156,9 @@ joinMaybeBlocks (Just m1, Just m2, Just m3, Just m4) =
 joinMaybeBlocks (mm1,     mm2,     mm3,     mm4)     =
   (mm1 `joinMaybeH` mm2) `joinMaybeV` (mm3 `joinMaybeH` mm4)
 
-injectLines :: [Int] -> [Int] -> M.Matrix ColorStr
+injectLines :: FBChangeColor -> [Int] -> [Int] -> M.Matrix ColorStr
             -> Maybe (M.Matrix ColorStr)
-injectLines rs cs m = joinMaybesV $ joinMaybesH <$> sms
+injectLines lineColor rs cs m = joinMaybesV $ joinMaybesH <$> sms
   where
     ps n ls = foldr (\j f i -> (i, j) : f (succ j)) (\i -> [(i, n)]) ls 1
     rm  = M.nrows m
@@ -181,13 +168,10 @@ injectLines rs cs m = joinMaybesV $ joinMaybesH <$> sms
     sms = fmap (\(r1,r2) -> fmap (\(c1,c2) -> f r1 r2 c1 c2) cps) rps
     f r1 r2 c1 c2 = joinMaybeBlocks
       ( safeSubmatrix r1 r2 c1 c2 m
-      , guard (c2 < cm || c1 > cm) >> vl (succ $ r2 - r1)
-      , guard (r2 < rm || r1 > rm) >> hl (succ $ c2 - c1)
-      , guard ((c2 < cm || c1 > cm) && (r2 < rm || r1 > rm)) >> cr
+      , guard (c2 < cm || c1 >= cm) >> vl (succ $ r2 - r1)
+      , guard (r2 < rm || r1 >= rm) >> hl (succ $ c2 - c1)
+      , guard ((c2 < cm || c1 >= cm) && (r2 < rm || r1 >= rm)) >> cr
       )
-
-    lineColor      = V2 (NewColor $ C.sRGB 0.419 0.776 1) Reset
-    -- lineSpaceColor = V2 Reset                             Reset
     mx = maxLength m
     ho = replicate mx $ ColorChar lineColor '─'
     ve = monochroStrs [(lineColor, " │ ")]
@@ -196,6 +180,14 @@ injectLines rs cs m = joinMaybesV $ joinMaybesH <$> sms
          | otherwise = Just $ M.rowVector $ V.replicate n ho
     vl n | n <= 0    = Nothing
          | otherwise = Just $ M.colVector $ V.replicate n ve
+
+index :: FBChangeColor -> M.Matrix ColorStr -> M.Matrix ColorStr
+index indexColor m = M.joinBlocks (z, horiIx, vertIx, m)
+  where
+    index str = monochroStrs [(indexColor, str)]
+    vertIx = fmap (index . show) $ M.colVector $ V.enumFromTo 1 $ M.nrows m
+    horiIx = fmap (index . show) $ M.rowVector $ V.enumFromTo 1 $ M.ncols m
+    z      = M.rowVector $ V.singleton $ index ""
 
 prettyColorMatrix :: M.Matrix ColorStr -> ColorStr
 prettyColorMatrix m = concat $ addLFs
@@ -210,34 +202,6 @@ prettyColorMatrix m = concat $ addLFs
     spcN n  = M.colVector $ V.replicate n $ [ColorChar indexSpaceColor ' ']
     horiIx  = spcN 1 M.<|> horiIx' M.<|> spcN 1
     vertIx  = fillMaxCML $ spcN 2 M.<-> vertIx' M.<-> spcN 1
-
--- TODO: Matrix (Matrix ColorStr)
--- TODO: vertical fill
-
-{-
-prettyColorMatrix :: ColorShow a
-                  => FBChangeColor -> FBChangeColor
-                  -> M.Matrix a -> ColorStr
-prettyColorMatrix c1 c2 m = colorUnlines $
-     [ replicate (rowMax + 3) ' ' `addLeft` concatMap
-       (\i -> fillR mx $ monochroStrs [(c2, show i)]) [1..M.ncols m] ]
-  ++ [ corner '┌' '┐' ]
-  ++ [ fillL rowMax (monochroStrs [(c2, show r)])
-       ++ monochroStrs [(c1, " │ ")]
-       ++ (concat $ fmap (\c -> fillR mx $ colorShow $ m M.! (r,c))
-            [1..M.ncols m])
-       ++ monochroStrs [(c1, " │ ")]
-     | r <- [1..M.nrows m] ]
-  ++ [ corner '└' '┘' ]
-  where
-    rowMax         = length $ show $ M.nrows m
-    mx             = (foldr max 0 $ fmap (length . colorShow) m)
-                       `max` succ (length $ show $ M.ncols m)
-    corner l r     = replicate (rowMax + 1) ' '
-           `addLeft` [ColorChar c1 l]
-                  ++ replicate (M.ncols m * mx + 2) (ColorChar c1 '─')
-                  ++ [ColorChar c1 r]
--}
 
 modifyL :: Monad m
         => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
@@ -460,18 +424,19 @@ main = withColor setColor24bit $ do
   initMatrix <- liftIO $ initialMatrix 8 10
   let colorMatrix = fmap colorShow initMatrix
   let m = maybe (M.transpose colorMatrix) id
-        $ injectLines [0..8] [0..10] $ fillMaxCMR colorMatrix
+        $ injectLines (V2 color1 Reset) [0..8] [0..10]
+        $ fillMaxCML $ index (V2 color2 Reset) $ colorMatrix
   let z = concat $ addLFs m
   putColorStrLn z
+  where
+    color1 = NewColor $ C.sRGB 0.419 0.776 1
+    color2 = NewColor $ C.sRGB 0.678 0.019 0.274
+    fb1 = V2 color1 color2
+    fb2 = V2 color2 color1
 {-
   let hw = monochroStrs [ (fb1,   "hello")
                         , (reset, " ")
                         , (fb2,   "world")
                         ]
   putColorStrLn hw
-  where
-    color1 = NewColor $ C.sRGB 0.419 0.776 1
-    color2 = NewColor $ C.sRGB 0.678 0.019 0.274
-    fb1 = V2 color1 color2
-    fb2 = V2 color2 color1
 -}
