@@ -139,11 +139,29 @@ safeSplitBlocks r c m =
     rm = M.nrows m
     cm = M.ncols m
 
+joinableH :: M.Matrix a -> M.Matrix a -> Bool
+joinableH m1 m2 = M.nrows m1 == M.nrows m2
+
+joinableV :: M.Matrix a -> M.Matrix a -> Bool
+joinableV m1 m2 = M.ncols m1 == M.ncols m2
+
 joinMaybeH :: Maybe (M.Matrix a) -> Maybe (M.Matrix a) -> Maybe (M.Matrix a)
-joinMaybeH mm1 mm2 = liftA2 (M.<|>) mm1 mm2 <|> mm1 <|> mm2
+joinMaybeH mm1 mm2 =
+  ((joinableH <$> mm1 <*> mm2 >>= guard) >> liftA2 (M.<|>) mm1 mm2)
+  <|> mm1 <|> mm2
 
 joinMaybeV :: Maybe (M.Matrix a) -> Maybe (M.Matrix a) -> Maybe (M.Matrix a)
-joinMaybeV mm1 mm2 = liftA2 (M.<->) mm1 mm2 <|> mm1 <|> mm2
+joinMaybeV mm1 mm2 =
+  ((joinableV <$> mm1 <*> mm2 >>= guard) >> liftA2 (M.<->) mm1 mm2)
+  <|> mm1 <|> mm2
+
+joinMaybesH :: [Maybe (M.Matrix a)] -> Maybe (M.Matrix a)
+joinMaybesH []     = Nothing
+joinMaybesH (x:xs) = foldr (\b f a -> a `joinMaybeH` f b) id xs x
+
+joinMaybesV :: [Maybe (M.Matrix a)] -> Maybe (M.Matrix a)
+joinMaybesV []     = Nothing
+joinMaybesV (x:xs) = foldr (\b f a -> a `joinMaybeV` f b) id xs x
 
 joinMaybeBlocks :: FourBlocks (Maybe (M.Matrix a)) -> Maybe (M.Matrix a)
 joinMaybeBlocks (Just m1, Just m2, Just m3, Just m4) =
@@ -151,48 +169,21 @@ joinMaybeBlocks (Just m1, Just m2, Just m3, Just m4) =
 joinMaybeBlocks (mm1,     mm2,     mm3,     mm4)     =
   (mm1 `joinMaybeH` mm2) `joinMaybeV` (mm3 `joinMaybeH` mm4)
 
-injectLines :: Int -> Int -> M.Matrix ColorStr -> Maybe (M.Matrix ColorStr)
-injectLines r c m = joinMaybeBlocks (tl, vl r, hl c, cr) 
+injectLines :: [Int] -> [Int] -> M.Matrix ColorStr
+            -> Maybe (M.Matrix ColorStr)
+injectLines rs cs m = joinMaybesV $ joinMaybesH <$> sms
   where
-    lineColor      = V2 (NewColor $ C.sRGB 0.419 0.776 1) Reset
-    -- lineSpaceColor = V2 Reset                             Reset
-    mx = maxLength m
-    ho = replicate mx $ ColorChar lineColor '─'
-    ve = monochroStrs [(lineColor, " │ ")]
-    cr = Just $ M.rowVector $ V.singleton $ monochroStrs [(lineColor, "─┼─")]
-    hl n | n <= 0    = Nothing
-         | otherwise = Just $ M.rowVector $ V.replicate n ho
-    vl n | n <= 0    = Nothing
-         | otherwise = Just $ M.colVector $ V.replicate n ve
-    (tl,tr,bl,br) = safeSplitBlocks r c m
-
--- joinMaybeH' :: Maybe (Matrix a) -> Maybe (Matrix a) -> Maybe (Matrix a)
-
-injectLines' :: [Int] -> [Int] -> M.Matrix ColorStr
-             -> Maybe (M.Matrix ColorStr)
-injectLines' rs cs m = undefined
-  where
-    ps  = foldr (\i f j -> (succ i, j) : f i) (\j -> [(1, j)])
+    ps n ls = foldr (\j f i -> (i, j) : f (succ j)) (\i -> [(i, n)]) ls 1
     rm  = M.nrows m
     cm  = M.ncols m
-    rps = ps (sort rs) $ M.nrows m
-    cps = ps (sort cs) $ M.ncols m
-    sms = fmap (\(r1,r2)
-            -> fmap (\(c1,c2) -> f r1 r2 c1 c2) cps) rps
-    -- f r1 r2 c1 c2
-    --   | r2 == 0 && c2 == 0 = cr
-    --   | r2 == 0            = hl (c2 - c1) M.<|> cr
-    --   | c2 == 0            = vl (r2 - r1) M.<-> cr
-    --   | otherwise = M.joinBlocks ( M.submatrix r1 r2 c1 c2 m
-    --                              , vl (r2 - r1)
-    --                              , hl (c2 - c1)
-    --                              , cr
-    --                              )
+    rps = ps rm $ sort rs
+    cps = ps cm $ sort cs
+    sms = fmap (\(r1,r2) -> fmap (\(c1,c2) -> f r1 r2 c1 c2) cps) rps
     f r1 r2 c1 c2 = joinMaybeBlocks
       ( safeSubmatrix r1 r2 c1 c2 m
-      , guard (r2 < M.nrows m || r1 > M.nrows m) >> vl (r2 - r1)
-      , guard (c2 < M.ncols m || c1 > M.ncols m) >> hl (c2 - c1)
-      , guard (r1 < r2 || c1 < c2) >> cr
+      , guard (c2 < cm || c1 > cm) >> vl (succ $ r2 - r1)
+      , guard (r2 < rm || r1 > rm) >> hl (succ $ c2 - c1)
+      , guard ((c2 < cm || c1 > cm) && (r2 < rm || r1 > rm)) >> cr
       )
 
     lineColor      = V2 (NewColor $ C.sRGB 0.419 0.776 1) Reset
@@ -466,23 +457,21 @@ monoColor = initialMatrix 10 10 >>= \m ->
 
 main :: IO ()
 main = withColor setColor24bit $ do
+  initMatrix <- liftIO $ initialMatrix 8 10
+  let colorMatrix = fmap colorShow initMatrix
+  let m = maybe (M.transpose colorMatrix) id
+        $ injectLines [0..8] [0..10] $ fillMaxCMR colorMatrix
+  let z = concat $ addLFs m
+  putColorStrLn z
+{-
   let hw = monochroStrs [ (fb1,   "hello")
                         , (reset, " ")
                         , (fb2,   "world")
                         ]
-  initMatrix <- liftIO $ initialMatrix 8 10
-  -- let m = initMatrix
-  let colorMatrix = fmap colorShow initMatrix
-  let m = maybe (M.transpose colorMatrix) id
-        $ injectLines 10 5 $ fillMaxCMR colorMatrix
-  let z = concat $ addLFs m
-  -- putColorStrLn hw
-  putColorStrLn z
-  -- liftIO $ print m
-  -- liftIO $ print $ maybe (M.transpose initMatrix) id
-  --        $ safeSubmatrix 2 10 2 2 initMatrix
+  putColorStrLn hw
   where
     color1 = NewColor $ C.sRGB 0.419 0.776 1
     color2 = NewColor $ C.sRGB 0.678 0.019 0.274
     fb1 = V2 color1 color2
     fb2 = V2 color2 color1
+-}
