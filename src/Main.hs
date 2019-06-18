@@ -157,8 +157,9 @@ joinMaybeBlocks (mm1,     mm2,     mm3,     mm4)     =
   (mm1 `joinMaybeH` mm2) `joinMaybeV` (mm3 `joinMaybeH` mm4)
 
 insertLines :: FBChangeColor -> [Int] -> [Int] -> M.Matrix ColorStr
-            -> Maybe (M.Matrix ColorStr)
-insertLines lineColor rs cs m = joinMaybesV $ joinMaybesH <$> sms
+            -> M.Matrix ColorStr
+insertLines lineColor rs cs m = fromMaybe (M.rowVector V.empty)
+  $ joinMaybesV $ joinMaybesH <$> sms
   where
     ps n ls = foldr (\j f i -> (i, j) : f (succ j)) (\i -> [(i, n)]) ls 1
     rm  = M.nrows m
@@ -432,13 +433,40 @@ monoColor = initialMatrix 10 10 >>= \m ->
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
 
 
+colorGame :: IO ()
+colorGame = withColor setColor24bit
+  $ liftIO (initialMatrix 8 8) >>= \m ->
+  flip evalStateT Blue $ flip evalStateT m $ forever $ do
+    colorState
+    cs <- checkZombies
+    pl <- lift get
+    if not $ actionable pl cs
+    then if fmap forwardable cs == fmap (const False) cs
+      then liftIO $ E.throwIO Draw
+      else do liftIO $ print $ Passed pl
+              lift $ modify cyclicSucc
+    else do
+      liftIO $ putStr "next player is: "
+      lift $ printState
+      line <- liftIO $ getLine
+      maybe (liftIO $ print WrongFormat) (uncurry advanceZombie)
+        $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
+  where
+    colorState = do
+      m <- get
+      lift $ lift $ putColorStrLn
+        $ concat $ addLFs $ grid (V2 Reset Reset) $ fillMaxCML
+        $ index (V2 Reset Reset) $ fmap colorShow m
+      return ()
+
+
 main :: IO ()
+main = colorGame
+{-
 main = withColor setColor24bit $ do
   initMatrix <- liftIO $ initialMatrix 8 10
   let colorMatrix = fmap colorShow initMatrix
-  let m = maybe (M.transpose colorMatrix) id
-        -- $ grid (V2 color1 Reset)
-        $ insertLines (V2 color1 Reset) [1] [1]
+  let m = grid (V2 color1 Reset)
         $ fillMaxCML $ index (V2 color2 color1) $ colorMatrix
   let z = concat $ addLFs m
   putColorStrLn z
@@ -447,7 +475,6 @@ main = withColor setColor24bit $ do
     color2 = NewColor $ C.sRGB 0.678 0.019 0.274
     fb1 = V2 color1 color2
     fb2 = V2 color2 color1
-{-
   let hw = monochroStrs [ (fb1,   "hello")
                         , (reset, " ")
                         , (fb2,   "world")
