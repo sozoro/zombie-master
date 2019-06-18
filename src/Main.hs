@@ -14,7 +14,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Foldable (asum)
 import Data.List (sort,nub)
-import Data.Maybe (listToMaybe,maybeToList,catMaybes)
+import Data.Maybe (listToMaybe,maybeToList,catMaybes,fromMaybe)
 import Data.Typeable (Typeable)
 import qualified Control.Exception         as E
 import qualified Data.Colour.SRGB          as C
@@ -168,18 +168,32 @@ injectLines lineColor rs cs m = joinMaybesV $ joinMaybesH <$> sms
     sms = fmap (\(r1,r2) -> fmap (\(c1,c2) -> f r1 r2 c1 c2) cps) rps
     f r1 r2 c1 c2 = joinMaybeBlocks
       ( safeSubmatrix r1 r2 c1 c2 m
-      , guard (c2 < cm || c1 > cm) >> vl (succ $ r2 - r1)
+      , guard (c2 < cm || c1 > cm) >> vl'
+          (flip appHeadBack (succ c2) <$> [r1..r2])
       , guard (r2 < rm || r1 > rm) >> hl (succ $ c2 - c1)
       , guard ((c2 < cm || c1 > cm) && (r2 < rm || r1 > rm)) >> cr
       )
     mx = maxLength m
     ho = replicate mx $ ColorChar lineColor '─'
-    ve = monochroStrs [(lineColor, " │ ")]
+    th = lineColor { v2y = Through }
+    ve = ColorChar th ' ' : monochroStrs [(lineColor, "│ ")]
+    ve' c = [ColorChar th ' ', ColorChar lineColor '│', ColorChar c ' ']
     cr = Just $ M.rowVector $ V.singleton $ monochroStrs [(lineColor, "─┼─")]
     hl n | n <= 0    = Nothing
          | otherwise = Just $ M.rowVector $ V.replicate n ho
     vl n | n <= 0    = Nothing
          | otherwise = Just $ M.colVector $ V.replicate n ve
+    vl' [] = Nothing
+    vl' ls = Just $ M.colVector $ V.fromList $ ve' <$> ls
+    newColor (NewColor c) = Just c
+    newColor _            = Nothing
+    getHeadBack r c = do
+      e <- M.safeGet r c m
+      h <- listToMaybe e
+      newColor $ v2y $ ccColor $ h
+    appHeadBack r c =
+      maybe lineColor (\c -> lineColor { v2y = NewColor c })
+      $ getHeadBack r c
 
 grid gridColor m = injectLines gridColor [0..M.nrows m] [0..M.ncols m] m
 
@@ -425,7 +439,9 @@ main :: IO ()
 main = withColor setColor24bit $ do
   initMatrix <- liftIO $ initialMatrix 8 10
   let colorMatrix = fmap colorShow initMatrix
-  let m = maybe (M.transpose colorMatrix) id $ grid (V2 color1 Reset)
+  let m = maybe (M.transpose colorMatrix) id
+        -- $ grid (V2 color1 Reset)
+        $ injectLines (V2 color1 Reset) [1] [1]
         $ fillMaxCML $ index (V2 color2 color1) $ colorMatrix
   let z = concat $ addLFs m
   putColorStrLn z
