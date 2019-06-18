@@ -292,10 +292,10 @@ safeIx ls i = guard (i >= 0) >> listToMaybe (drop i ls)
 printState :: (MonadIO m, Show r) => StateT r m ()
 printState = get >>= liftIO . print
 
-randomCol :: Int -> Player -> IO (M.Matrix Zombie)
+randomCol :: MonadIO m => Int -> Player -> m (M.Matrix Zombie)
 randomCol r p = do
-  gen <- R.createSystemRandom
-  vec <- R.uniformVector gen r
+  gen <- liftIO R.createSystemRandom
+  vec <- liftIO $ R.uniformVector gen r
   return $ M.colVector $ Zombie p <$> vec
 
 fill :: a -> Int -> Int -> M.Matrix a
@@ -304,11 +304,11 @@ fill a r c = M.matrix r c $ \_ -> a
 data TooSmallMatrix = TooSmallMatrix deriving (Show, Typeable)
 instance E.Exception TooSmallMatrix where
 
-initialMatrix :: Int -> Int -> IO (M.Matrix Zombie)
+initialMatrix :: MonadIO m => Int -> Int -> m (M.Matrix Zombie)
 initialMatrix r c = do
-  when (r <= 2 || c < 4) $ E.throwIO TooSmallMatrix
-  let col     = fill Empty (r - 2) 1
-      row     = fill Empty 1 c
+  when (r <= 2 || c < 4) $ liftIO $ E.throwIO TooSmallMatrix
+  let col = fill Empty (r - 2) 1
+      row = fill Empty 1 c
   left  <- randomCol (r - 2) Blue
   right <- randomCol (r - 2) Red
   let nl = sum $ fmap (fromEnum . (R ==) . direction) left
@@ -438,7 +438,7 @@ monoColor = initialMatrix 10 10 >>= \m ->
 
 colorGame :: IO ()
 colorGame = withColor setColor24bit
-  $ liftIO (initialMatrix 8 8) >>= \m ->
+  $ initialMatrix 8 8 >>= \m ->
   flip evalStateT Blue $ flip evalStateT m $ forever $ do
     colorState
     cs <- checkZombies
