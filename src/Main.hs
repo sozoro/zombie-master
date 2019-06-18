@@ -181,7 +181,7 @@ injectLines lineColor rs cs m = joinMaybesV $ joinMaybesH <$> sms
     hl n | n <= 0    = Nothing
          | otherwise = Just $ M.rowVector $ V.replicate n ho
     vl [] = Nothing
-    vl ls = Just $ M.colVector $ V.fromList $ ve' <$> ls
+    vl ls = Just $ M.colVector $ V.fromList $ ve <$> ls
     newColor (NewColor c) = Just c
     newColor _            = Nothing
     getHeadBack r c = do
