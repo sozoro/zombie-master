@@ -437,8 +437,7 @@ monoColor = initialMatrix 10 10 >>= \m ->
 
 
 colorGame :: IO ()
-colorGame = withColor setColor24bit
-  $ initialMatrix 8 8 >>= \m ->
+colorGame = withColor setColor24bit $ initialMatrix 8 8 >>= \m ->
   flip evalStateT Blue $ flip evalStateT m $ forever $ do
     colorState
     cs <- checkZombies
