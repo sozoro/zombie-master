@@ -168,23 +168,20 @@ injectLines lineColor rs cs m = joinMaybesV $ joinMaybesH <$> sms
     sms = fmap (\(r1,r2) -> fmap (\(c1,c2) -> f r1 r2 c1 c2) cps) rps
     f r1 r2 c1 c2 = joinMaybeBlocks
       ( safeSubmatrix r1 r2 c1 c2 m
-      , guard (c2 < cm || c1 > cm) >> vl'
+      , guard (c2 < cm || c1 > cm) >> vl
           (flip appHeadBack (succ c2) <$> [r1..r2])
       , guard (r2 < rm || r1 > rm) >> hl (succ $ c2 - c1)
       , guard ((c2 < cm || c1 > cm) && (r2 < rm || r1 > rm)) >> cr
       )
     mx = maxLength m
-    ho = replicate mx $ ColorChar lineColor '─'
     th = lineColor { v2y = Through }
-    ve = ColorChar th ' ' : monochroStrs [(lineColor, "│ ")]
-    ve' c = [ColorChar th ' ', ColorChar lineColor '│', ColorChar c ' ']
     cr = Just $ M.rowVector $ V.singleton $ monochroStrs [(lineColor, "─┼─")]
+    ho = replicate mx $ ColorChar lineColor '─'
+    ve c = [ColorChar th ' ', ColorChar lineColor '│', ColorChar c ' ']
     hl n | n <= 0    = Nothing
          | otherwise = Just $ M.rowVector $ V.replicate n ho
-    vl n | n <= 0    = Nothing
-         | otherwise = Just $ M.colVector $ V.replicate n ve
-    vl' [] = Nothing
-    vl' ls = Just $ M.colVector $ V.fromList $ ve' <$> ls
+    vl [] = Nothing
+    vl ls = Just $ M.colVector $ V.fromList $ ve' <$> ls
     newColor (NewColor c) = Just c
     newColor _            = Nothing
     getHeadBack r c = do
