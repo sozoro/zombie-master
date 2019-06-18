@@ -156,9 +156,9 @@ joinMaybeBlocks (Just m1, Just m2, Just m3, Just m4) =
 joinMaybeBlocks (mm1,     mm2,     mm3,     mm4)     =
   (mm1 `joinMaybeH` mm2) `joinMaybeV` (mm3 `joinMaybeH` mm4)
 
-injectLines :: FBChangeColor -> [Int] -> [Int] -> M.Matrix ColorStr
+insertLines :: FBChangeColor -> [Int] -> [Int] -> M.Matrix ColorStr
             -> Maybe (M.Matrix ColorStr)
-injectLines lineColor rs cs m = joinMaybesV $ joinMaybesH <$> sms
+insertLines lineColor rs cs m = joinMaybesV $ joinMaybesH <$> sms
   where
     ps n ls = foldr (\j f i -> (i, j) : f (succ j)) (\i -> [(i, n)]) ls 1
     rm  = M.nrows m
@@ -192,7 +192,7 @@ injectLines lineColor rs cs m = joinMaybesV $ joinMaybesH <$> sms
       maybe lineColor (\c -> lineColor { v2y = NewColor c })
       $ getHeadBack r c
 
-grid gridColor m = injectLines gridColor [0..M.nrows m] [0..M.ncols m] m
+grid gridColor m = insertLines gridColor [0..M.nrows m] [0..M.ncols m] m
 
 index :: FBChangeColor -> M.Matrix ColorStr -> M.Matrix ColorStr
 index indexColor m = M.joinBlocks (z, horiIx, vertIx, m)
@@ -438,7 +438,7 @@ main = withColor setColor24bit $ do
   let colorMatrix = fmap colorShow initMatrix
   let m = maybe (M.transpose colorMatrix) id
         -- $ grid (V2 color1 Reset)
-        $ injectLines (V2 color1 Reset) [1] [1]
+        $ insertLines (V2 color1 Reset) [1] [1]
         $ fillMaxCML $ index (V2 color2 color1) $ colorMatrix
   let z = concat $ addLFs m
   putColorStrLn z
