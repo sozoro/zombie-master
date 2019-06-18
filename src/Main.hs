@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Main where
 
@@ -436,12 +437,23 @@ monoColor = initialMatrix 10 10 >>= \m ->
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
 
 
+colorStrZombies :: MonadState (M.Matrix Zombie) m => m ColorStr
+colorStrZombies = concat . addLFs . grid (V2 Reset Reset) . fillMaxCML
+                . index (V2 Reset Reset) . fmap colorShow <$> get
+
+data Status = Status
+  { zombies    :: M.Matrix Zombie
+  , nextPlayer :: Player
+  , previous   :: Maybe (Int, Int)
+  }
+
 colorGame :: IO ()
 colorGame = withColor setColor24bit $ initialMatrix 8 8 >>= \m ->
   flip evalStateT Blue $ flip evalStateT m $ forever $ do
-    colorState
     cs <- checkZombies
     pl <- lift get
+    zs <- colorStrZombies
+    lift $ lift $ putColorStrLn zs
     if not $ actionable pl cs
     then if fmap forwardable cs == fmap (const False) cs
       then liftIO $ E.throwIO Draw
@@ -453,13 +465,6 @@ colorGame = withColor setColor24bit $ initialMatrix 8 8 >>= \m ->
       line <- liftIO $ getLine
       maybe (liftIO $ print WrongFormat) (uncurry advanceZombie)
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
-  where
-    colorState = do
-      m <- get
-      lift $ lift $ putColorStrLn
-        $ concat $ addLFs $ grid (V2 Reset Reset) $ fillMaxCML
-        $ index (V2 Reset Reset) $ fmap colorShow m
-      return ()
 
 
 main :: IO ()
