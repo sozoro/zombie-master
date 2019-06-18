@@ -27,14 +27,14 @@ import qualified System.Random.MWC         as R
 data Clockwise = L | U | R | D deriving (Eq, Enum, Bounded, Ord)
 instance Cyclic Clockwise where
 instance Show   Clockwise where
-  -- show L = "⬅"
-  -- show U = "⬆"
-  -- show R = "➡"
-  -- show D = "⬇"
   show L = "←"
   show U = "↑"
   show R = "→"
   show D = "↓"
+
+instance R.Variate Clockwise where
+  uniform        = fmap cyclicToEnum . R.uniformR (0, 4)
+  uniformR (x,y) = fmap cyclicToEnum . R.uniformR (fromEnum x,fromEnum y)
 
 data Player = Blue | Red deriving (Eq, Enum, Bounded, Ord)
 instance Cyclic Player where
@@ -295,9 +295,8 @@ printState = get >>= liftIO . print
 randomCol :: Int -> Player -> IO (M.Matrix Zombie)
 randomCol r p = do
   gen <- R.createSystemRandom
-  vec <- R.uniformVector gen r :: IO (V.Vector Int)
-  return $ M.colVector
-         $ (Zombie p . cyclicToEnum) <$> vec
+  vec <- R.uniformVector gen r
+  return $ M.colVector $ Zombie p <$> vec
 
 fill :: a -> Int -> Int -> M.Matrix a
 fill a r c = M.matrix r c $ \_ -> a
@@ -308,13 +307,17 @@ instance E.Exception TooSmallMatrix where
 initialMatrix :: Int -> Int -> IO (M.Matrix Zombie)
 initialMatrix r c = do
   when (r <= 2 || c < 4) $ E.throwIO TooSmallMatrix
-  let col = fill Empty (r - 2) 1
-      row = fill Empty 1 c
+  let col     = fill Empty (r - 2) 1
+      row     = fill Empty 1 c
   left  <- randomCol (r - 2) Blue
   right <- randomCol (r - 2) Red
-  let gu = col M.<|> left  M.<|> fill Empty (r - 2) (c - 4)
-               M.<|> right M.<|> col
-  return $ row M.<-> gu    M.<-> row
+  let nl = sum $ fmap (fromEnum . (R ==) . direction) left
+      nr = sum $ fmap (fromEnum . (L ==) . direction) right
+  if (nl == 0 || nr == 0 || nl == nr) then initialMatrix r c
+  else do
+    let gu = col M.<|> left  M.<|> fill Empty (r - 2) (c - 4)
+                 M.<|> right M.<|> col
+    return $ row M.<-> gu    M.<-> row
 
 forward :: (Int, Int) -> Clockwise -> (Int, Int)
 forward (y, x) L = (     y, pred x)
