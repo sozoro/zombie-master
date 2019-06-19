@@ -468,8 +468,7 @@ zombieMaster = withColor setColor24bit
     lift $ putColorStrLn zs
     if not $ actionable nextPlayer cs
     then if or $ forwardable <$> cs
-      then do liftIO $ print $ Passed nextPlayer
-              succPlayer
+      then liftIO (print $ Passed nextPlayer) >> succPlayer
       else liftIO $ E.throwIO Draw
     else do
       liftIO $ putStr "next player is: "
