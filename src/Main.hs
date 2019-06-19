@@ -4,6 +4,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Main where
 
@@ -340,8 +343,8 @@ data ZombieStatus
 instance E.Exception ZombieStatus where
 
 checkZombie :: Monad m
-            => Int -> Int -> StateT (M.Matrix Zombie) m CellStatus
-checkZombie y x = get >>= \m -> return $ checkZombie' m y x
+            => Int -> Int -> StateT Status m CellStatus
+checkZombie y x = zombies <$> get >>= \m -> return $ checkZombie' m y x
 
 checkZombie' :: M.Matrix Zombie -> Int -> Int -> CellStatus
 checkZombie' m y x =
@@ -352,19 +355,24 @@ checkZombie' m y x =
       if front == IsEmpty then Forwardable p d
                           else DeadLocked  p d
 
-advanceZombie :: MonadIO m
-              => Int -> Int
-              -> StateT (M.Matrix Zombie) (StateT Player m) ()
+succPlayer :: Monad m => StateT Status m ()
+succPlayer =
+  modify $ \s@(Status {..}) -> s { nextPlayer = cyclicSucc nextPlayer }
+
+advanceZombie :: MonadIO m => Int -> Int -> StateT Status m ()
 advanceZombie y x = checkZombie y x >>= \case
-  IsZombie (Forwardable p d) -> lift get >>= \me ->
-         if p /= me
+  IsZombie (Forwardable p d) -> do
+         Status {..} <- get
+         if p /= nextPlayer
          then liftIO $ print NotYourZombie
          else do
-           modifyTo d y x $ \case
+           let newPos = (y, x) `forward` d
+           zombiesState $ modifyTo d y x $ \case
              (z:e:xs) -> return (e:z:xs)
              _        -> return []
-           uncurry rule $ (y, x) `forward` d
-           lift $ modify cyclicSucc
+           zombiesState $ uncurry rule newPos
+           succPlayer
+           modify $ \s -> s { previous = Just newPos }
   err -> liftIO $ print err
 
 isZombie :: Zombie -> Bool
@@ -391,8 +399,8 @@ rule y x = modifyLURD y x $ \case
                          in return $ a : (space ++ mapHead f remaining)
   _ -> return []
 
-checkZombies :: Monad m => StateT (M.Matrix Zombie) m (M.Matrix CellStatus)
-checkZombies = get >>= \m ->
+checkZombies :: Monad m => StateT Status m (M.Matrix CellStatus)
+checkZombies = zombies <$> get >>= \m ->
   return $ M.matrix (M.nrows m) (M.ncols m) $ \(r,c) -> checkZombie' m r c
 
 forwardable :: CellStatus -> Bool
@@ -418,6 +426,7 @@ instance Show Message where
   show WrongFormat   = "please enter in the collect format: (y, x)"
   show NotYourZombie = "it is not your zombie"
 
+{-
 monoColor :: IO ()
 monoColor = initialMatrix 10 10 >>= \m ->
   flip evalStateT Blue $ flip evalStateT m $ forever $ do
@@ -435,33 +444,55 @@ monoColor = initialMatrix 10 10 >>= \m ->
       line <- liftIO $ getLine
       maybe (liftIO $ print WrongFormat) (uncurry advanceZombie)
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
+-}
 
-
-colorStrZombies :: MonadState (M.Matrix Zombie) m => m ColorStr
-colorStrZombies = concat . addLFs . grid (V2 Reset Reset) . fillMaxCML
-                . index (V2 Reset Reset) . fmap colorShow <$> get
+-- colorStrZombies :: MonadState (M.Matrix Zombie) m => m ColorStr
+colorStrZombies :: Monad m => StateT Status m ColorStr
+colorStrZombies = do
+  Status {..} <- get
+  return $ concat $ addLFs $ grid (V2 Reset Reset) $ fillMaxCML
+         $ index (V2 Reset Reset)
+         $ fromMaybe id
+           (uncurry (setBackColor $ NewColor $ C.sRGB 0.2 0.2 0.2) <$> previous)
+         $ fmap colorShow $ zombies
 
 data Status = Status
-  { zombies    :: M.Matrix Zombie
-  , nextPlayer :: Player
-  , previous   :: Maybe (Int, Int)
-  }
+  { zombies    :: !(M.Matrix Zombie)
+  , nextPlayer :: !Player
+  , previous   :: !(Maybe (Int, Int))
+  } deriving (Show,Eq)
+
+zombiesState :: Monad m
+             => StateT (M.Matrix Zombie) m a -> StateT Status m a
+zombiesState f =
+  StateT $ \s -> fmap (\zs -> s { zombies = zs }) <$> runStateT f (zombies s)
+
+
+setBackColor :: ChangeColor -> Int -> Int
+             -> M.Matrix ColorStr -> M.Matrix ColorStr
+setBackColor back y x = M.mapPos $ \pos cs -> if pos /= (y,x) then cs
+  else (\(ColorChar (V2 fore _) cha) -> ColorChar (V2 fore back) cha) <$> cs
+  
 
 colorGame :: IO ()
-colorGame = withColor setColor24bit $ initialMatrix 8 8 >>= \m ->
-  flip evalStateT Blue $ flip evalStateT m $ forever $ do
+colorGame = withColor setColor24bit
+  $ initialMatrix 8 8 >>= \m -> flip evalStateT (Status
+  { zombies    = m
+  , nextPlayer = Blue
+  , previous   = Nothing
+  }) $ forever $ do
+    Status {..} <- get
     cs <- checkZombies
-    pl <- lift get
     zs <- colorStrZombies
-    lift $ lift $ putColorStrLn zs
-    if not $ actionable pl cs
-    then if fmap forwardable cs == fmap (const False) cs
-      then liftIO $ E.throwIO Draw
-      else do liftIO $ print $ Passed pl
-              lift $ modify cyclicSucc
+    lift $ putColorStrLn zs
+    if not $ actionable nextPlayer cs
+    then if or $ forwardable <$> cs
+      then do liftIO $ print $ Passed nextPlayer
+              succPlayer
+      else liftIO $ E.throwIO Draw
     else do
       liftIO $ putStr "next player is: "
-      lift $ printState
+      liftIO $ print nextPlayer
       line <- liftIO $ getLine
       maybe (liftIO $ print WrongFormat) (uncurry advanceZombie)
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
