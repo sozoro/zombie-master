@@ -424,25 +424,8 @@ instance Show Message where
   show WrongFormat   = "please enter in the collect format: (y, x)"
   show NotYourZombie = "it is not your zombie"
 
-{-
-monoColor :: IO ()
-monoColor = initialMatrix 10 10 >>= \m ->
-  flip evalStateT Blue $ flip evalStateT m $ forever $ do
-    printState
-    cs <- checkZombies
-    pl <- lift get
-    if not $ actionable pl cs
-    then if fmap forwardable cs == fmap (const False) cs
-      then liftIO $ E.throwIO Draw
-      else do liftIO $ print $ Passed pl
-              lift $ modify cyclicSucc
-    else do
-      liftIO $ putStr "next player is: "
-      lift $ printState
-      line <- liftIO $ getLine
-      maybe (liftIO $ print WrongFormat) (uncurry advanceZombie)
-        $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
--}
+dontColor :: ColorSetter
+dontColor _ _ = A.Reset
 
 -- colorStrZombies :: MonadState (M.Matrix Zombie) m => m ColorStr
 colorStrZombies :: Monad m => StateT Status m ColorStr
@@ -472,8 +455,8 @@ setBackColor back y x = M.mapPos $ \pos cs -> if pos /= (y,x) then cs
   else (\(ColorChar (V2 fore _) cha) -> ColorChar (V2 fore back) cha) <$> cs
 
 
-colorGame :: IO ()
-colorGame = withColor setColor24bit
+zombieMaster :: IO ()
+zombieMaster = withColor setColor24bit
   $ initialMatrix 8 8 >>= \m -> flip evalStateT (Status
   { zombies    = m
   , nextPlayer = Blue
@@ -497,7 +480,7 @@ colorGame = withColor setColor24bit
 
 
 main :: IO ()
-main = colorGame
+main = zombieMaster
 {-
 main = withColor setColor24bit $ do
   initMatrix <- liftIO $ initialMatrix 8 10
