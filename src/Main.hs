@@ -470,7 +470,7 @@ setBackColor :: ChangeColor -> Int -> Int
              -> M.Matrix ColorStr -> M.Matrix ColorStr
 setBackColor back y x = M.mapPos $ \pos cs -> if pos /= (y,x) then cs
   else (\(ColorChar (V2 fore _) cha) -> ColorChar (V2 fore back) cha) <$> cs
-  
+
 
 colorGame :: IO ()
 colorGame = withColor setColor24bit
