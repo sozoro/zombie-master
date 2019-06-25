@@ -207,20 +207,6 @@ index indexColor m = M.joinBlocks (z, horiIx, vertIx, m)
     horiIx = fmap (index . show) $ M.rowVector $ V.enumFromTo 1 $ M.ncols m
     z      = M.rowVector $ V.singleton $ index ""
 
-prettyColorMatrix :: M.Matrix ColorStr -> ColorStr
-prettyColorMatrix m = concat $ addLFs
-  $ vertIx M.<|> fillMaxCMR (horiIx M.<-> framed)
-  where
-    framed          = frame $ fillCMR (succ $ length $ show $ M.ncols m) m
-    indexColor      = V2 (NewColor $ C.sRGB 0.678 0.019 0.274) Reset
-    indexSpaceColor = V2 Reset                                 Reset
-    index str       = monochroStrs [(indexColor, str)]
-    vertIx' = fmap (index . show) $ M.colVector $ V.enumFromTo 1 $ M.nrows m
-    horiIx' = fmap (index . show) $ M.rowVector $ V.enumFromTo 1 $ M.ncols m
-    spcN n  = M.colVector $ V.replicate n $ [ColorChar indexSpaceColor ' ']
-    horiIx  = spcN 1 M.<|> horiIx' M.<|> spcN 1
-    vertIx  = fillMaxCML $ spcN 2 M.<-> vertIx' M.<-> spcN 1
-
 type Pos    = V2 Int
 type PosVec = V2 Int
 
