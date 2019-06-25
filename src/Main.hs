@@ -15,6 +15,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Foldable (asum)
+import Data.Functor
 import Data.List (sort,nub)
 import Data.Maybe (listToMaybe,maybeToList,catMaybes,fromMaybe)
 import Data.Typeable (Typeable)
@@ -218,6 +219,32 @@ prettyColorMatrix m = concat $ addLFs
     spcN n  = M.colVector $ V.replicate n $ [ColorChar indexSpaceColor ' ']
     horiIx  = spcN 1 M.<|> horiIx' M.<|> spcN 1
     vertIx  = fillMaxCML $ spcN 2 M.<-> vertIx' M.<-> spcN 1
+
+type Pos    = V2 Int
+type PosVec = V2 Int
+
+dirVec :: Clockwise -> PosVec
+dirVec L = V2 0    (-1)
+dirVec U = V2 (-1) 0 
+dirVec R = V2 0    1 
+dirVec D = V2 1    0 
+
+v2Tuple :: V2 a -> (a, a)
+v2Tuple (V2 x y) = (x, y)
+
+modifyViaSubList :: Functor f => [Pos] -> ([a] -> f [a])
+                 -> M.Matrix a -> f (M.Matrix a)
+modifyViaSubList ps f m = fmap (foldr id m)
+  $ fmap . zipWith (flip M.setElem) <*> f . fmap (m M.!)
+  $ v2Tuple <$> ps
+
+modifyTo' :: Functor f => Clockwise -> Pos -> ([a] -> f [a])
+          -> M.Matrix a -> f (M.Matrix a)
+modifyTo' d p f m = modifyViaSubList ps f m
+  where
+    ps = takeWhile inRange $ iterate (+ dirVec d) p
+    inRange (V2 r c)
+      = 1 <= r && r <= M.nrows m && 1 <= c && c <= M.ncols m
 
 modifyL :: Monad m
         => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
@@ -427,7 +454,6 @@ instance Show Message where
 dontColor :: ColorSetter
 dontColor _ _ = A.Reset
 
--- colorStrZombies :: MonadState (M.Matrix Zombie) m => m ColorStr
 colorStrZombies :: Monad m => StateT Status m ColorStr
 colorStrZombies = do
   Status {..} <- get
@@ -479,7 +505,10 @@ zombieMaster = withColor setColor24bit
 
 
 main :: IO ()
-main = zombieMaster
+-- main = zombieMaster
+main = do
+  m <- modifyTo' D (V2 1 2) (return . ($> True)) $ fill False 2 3
+  print m
 {-
 main = withColor setColor24bit $ do
   initMatrix <- liftIO $ initialMatrix 8 10

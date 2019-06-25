@@ -42,6 +42,7 @@ module Color
   ) where
 
 import Cyclic
+import Control.Applicative
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -65,6 +66,14 @@ instance Semigroup a => Semigroup (V2 a) where
   V2 x1 y1 <> V2 x2 y2 = V2 (x1 <> x2) (y1 <> y2)
 instance Monoid a => Monoid (V2 a) where
   mempty = V2 mempty mempty
+instance Num a => Num (V2 a) where
+  (+) = liftA2 (+)
+  (-) = liftA2 (-)
+  (*) = liftA2 (*)
+  abs    = fmap abs
+  negate = fmap negate
+  signum = fmap signum
+  fromInteger = pure . fromInteger
 
 type Color     = C.Colour Float
 type ColorDiff = Maybe Color
