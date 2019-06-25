@@ -232,6 +232,9 @@ dirVec D = V2 1    0
 v2Tuple :: V2 a -> (a, a)
 v2Tuple (V2 x y) = (x, y)
 
+uncurryV2 :: (a -> a -> b) -> V2 a -> b
+uncurryV2 f (V2 x y) = f x y
+
 modifyViaSubList :: Functor f => [Pos] -> ([a] -> f [a])
                  -> M.Matrix a -> f (M.Matrix a)
 modifyViaSubList ps f m = fmap (foldr id m)
@@ -279,12 +282,6 @@ initialMatrix r c = do
                  M.<|> right M.<|> col
     return $ row M.<-> gu    M.<-> row
 
-forward :: (Int, Int) -> Clockwise -> (Int, Int)
-forward (y, x) L = (     y, pred x)
-forward (y, x) U = (pred y,      x)
-forward (y, x) R = (     y, succ x)
-forward (y, x) D = (succ y,      x)
-
 data CellStatus
   = IsOutOfTheField
   | IsEmpty
@@ -300,16 +297,16 @@ instance E.Exception ZombieStatus where
 
 checkZombie :: Monad m
             => Int -> Int -> StateT Status m CellStatus
-checkZombie y x = zombies <$> get >>= \m -> return $ checkZombie' m y x
+checkZombie y x = zombies <$> get >>= \m -> return $ checkZombie' m $ V2 y x
 
-checkZombie' :: M.Matrix Zombie -> Int -> Int -> CellStatus
-checkZombie' m y x =
+checkZombie' :: M.Matrix Zombie -> Pos -> CellStatus
+checkZombie' m pos@(V2 y x) =
   flip (maybe IsOutOfTheField) (M.safeGet y x m) $ \case
     Empty      -> IsEmpty
     Zombie p d -> IsZombie $
-      let front = uncurry (checkZombie' m) $ (y, x) `forward` d in
-      if front == IsEmpty then Forwardable p d
-                          else DeadLocked  p d
+      let front = checkZombie' m $ pos + dirVec d in
+      if  front == IsEmpty then Forwardable p d
+                           else DeadLocked  p d
 
 succPlayer :: Monad m => StateT Status m ()
 succPlayer =
@@ -322,11 +319,11 @@ advanceZombie y x = checkZombie y x >>= \case
          if p /= nextPlayer
          then liftIO $ print NotYourZombie
          else do
-           let newPos = (y, x) `forward` d
+           let newPos = V2 y x + dirVec d
            zombiesState $ modifyTo d (V2 y x) $ \case
              (z:e:xs) -> return (e:z:xs)
              _        -> return []
-           zombiesState $ uncurry rule newPos
+           zombiesState $ uncurryV2 rule newPos
            succPlayer
            modify $ \s -> s { previous = Just newPos }
   err -> liftIO $ print err
@@ -357,7 +354,7 @@ rule y x = allDirs (V2 y x) $ \case
 
 checkZombies :: Monad m => StateT Status m (M.Matrix CellStatus)
 checkZombies = zombies <$> get >>= \m ->
-  return $ M.matrix (M.nrows m) (M.ncols m) $ \(r,c) -> checkZombie' m r c
+  return $ M.matrix (M.nrows m) (M.ncols m) $ checkZombie' m . uncurry V2
 
 forwardable :: CellStatus -> Bool
 forwardable (IsZombie (Forwardable _ _)) = True
@@ -391,13 +388,13 @@ colorStrZombies = do
   return $ concat $ addLFs $ grid (V2 Reset Reset) $ fillMaxCML
          $ index (V2 Reset Reset)
          $ fromMaybe id
-           (uncurry (setBackColor $ NewColor $ C.sRGB 0.2 0.2 0.2) <$> previous)
+       (uncurryV2 (setBackColor $ NewColor $ C.sRGB 0.2 0.2 0.2) <$> previous)
          $ fmap colorShow $ zombies
 
 data Status = Status
   { zombies    :: !(M.Matrix Zombie)
   , nextPlayer :: !Player
-  , previous   :: !(Maybe (Int, Int))
+  , previous   :: !(Maybe Pos)
   } deriving (Show,Eq)
 
 zombiesState :: Monad m
@@ -437,26 +434,3 @@ zombieMaster = withColor setColor24bit
 
 main :: IO ()
 main = zombieMaster
-{-
-main = do
-  -- m <- runStateT (modifyTo D (V2 1 2) $ return . ($> True)) $ fill False 2 3
-  m <- execStateT (allDirs (V2 2 2) $ return . const [1..]) $ fill 0 3 4
-  print m
-main = withColor setColor24bit $ do
-  initMatrix <- liftIO $ initialMatrix 8 10
-  let colorMatrix = fmap colorShow initMatrix
-  let m = grid (V2 color1 Reset)
-        $ fillMaxCML $ index (V2 color2 color1) $ colorMatrix
-  let z = concat $ addLFs m
-  putColorStrLn z
-  where
-    color1 = NewColor $ C.sRGB 0.419 0.776 1
-    color2 = NewColor $ C.sRGB 0.678 0.019 0.274
-    fb1 = V2 color1 color2
-    fb2 = V2 color2 color1
-  let hw = monochroStrs [ (fb1,   "hello")
-                        , (reset, " ")
-                        , (fb2,   "world")
-                        ]
-  putColorStrLn hw
--}
