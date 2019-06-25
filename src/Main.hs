@@ -5,6 +5,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
+-- {-# LANGUAGE ViewPatterns #-}
 
 module Main where
 
@@ -232,8 +233,8 @@ dirVec D = V2 1    0
 v2Tuple :: V2 a -> (a, a)
 v2Tuple (V2 x y) = (x, y)
 
-uncurryV2 :: (a -> a -> b) -> V2 a -> b
-uncurryV2 f (V2 x y) = f x y
+tupleV2 :: (a, a) -> V2 a
+tupleV2 = uncurry V2
 
 modifyViaSubList :: Functor f => [Pos] -> ([a] -> f [a])
                  -> M.Matrix a -> f (M.Matrix a)
@@ -296,8 +297,8 @@ data ZombieStatus
 instance E.Exception ZombieStatus where
 
 checkZombie :: Monad m
-            => Int -> Int -> StateT Status m CellStatus
-checkZombie y x = zombies <$> get >>= \m -> return $ checkZombie' m $ V2 y x
+            => Pos -> StateT Status m CellStatus
+checkZombie pos = zombies <$> get >>= \m -> return $ checkZombie' m pos
 
 checkZombie' :: M.Matrix Zombie -> Pos -> CellStatus
 checkZombie' m pos@(V2 y x) =
@@ -312,18 +313,18 @@ succPlayer :: Monad m => StateT Status m ()
 succPlayer =
   modify $ \s@(Status {..}) -> s { nextPlayer = cyclicSucc nextPlayer }
 
-advanceZombie :: MonadIO m => Int -> Int -> StateT Status m ()
-advanceZombie y x = checkZombie y x >>= \case
+advanceZombie :: MonadIO m => Pos -> StateT Status m ()
+advanceZombie pos = checkZombie pos >>= \case
   IsZombie (Forwardable p d) -> do
          Status {..} <- get
          if p /= nextPlayer
          then liftIO $ print NotYourZombie
          else do
-           let newPos = V2 y x + dirVec d
-           zombiesState $ modifyTo d (V2 y x) $ \case
+           let newPos = pos + dirVec d
+           zombiesState $ modifyTo d pos $ \case
              (z:e:xs) -> return (e:z:xs)
              _        -> return []
-           zombiesState $ uncurryV2 rule newPos
+           zombiesState $ rule newPos
            succPlayer
            modify $ \s -> s { previous = Just newPos }
   err -> liftIO $ print err
@@ -345,8 +346,8 @@ mapHead _ []     = []
 mapHead f (x:xs) = f x : xs
 
 rule :: Monad m
-     => Int -> Int -> StateT (M.Matrix Zombie) m ()
-rule y x = allDirs (V2 y x) $ \case
+     => Pos -> StateT (M.Matrix Zombie) m ()
+rule pos = allDirs pos $ \case
   (a@(Zombie _ _):as) -> let (space, remaining) = break isZombie as
                              f b = if a `isEnemyOf` b then turnZombie b else b
                          in return $ a : (space ++ mapHead f remaining)
@@ -354,7 +355,7 @@ rule y x = allDirs (V2 y x) $ \case
 
 checkZombies :: Monad m => StateT Status m (M.Matrix CellStatus)
 checkZombies = zombies <$> get >>= \m ->
-  return $ M.matrix (M.nrows m) (M.ncols m) $ checkZombie' m . uncurry V2
+  return $ M.matrix (M.nrows m) (M.ncols m) $ checkZombie' m . tupleV2
 
 forwardable :: CellStatus -> Bool
 forwardable (IsZombie (Forwardable _ _)) = True
@@ -388,7 +389,7 @@ colorStrZombies = do
   return $ concat $ addLFs $ grid (V2 Reset Reset) $ fillMaxCML
          $ index (V2 Reset Reset)
          $ fromMaybe id
-       (uncurryV2 (setBackColor $ NewColor $ C.sRGB 0.2 0.2 0.2) <$> previous)
+           (setBackColor (NewColor $ C.sRGB 0.2 0.2 0.2) <$> previous)
          $ fmap colorShow $ zombies
 
 data Status = Status
@@ -403,10 +404,11 @@ zombiesState f =
   StateT $ \s -> fmap (\zs -> s { zombies = zs }) <$> runStateT f (zombies s)
 
 
-setBackColor :: ChangeColor -> Int -> Int
+setBackColor :: ChangeColor -> Pos
              -> M.Matrix ColorStr -> M.Matrix ColorStr
-setBackColor back y x = M.mapPos $ \pos cs -> if pos /= (y,x) then cs
-  else (\(ColorChar (V2 fore _) cha) -> ColorChar (V2 fore back) cha) <$> cs
+setBackColor back p = M.mapPos $ \p' -> if tupleV2 p' == p
+  then fmap $ \(ColorChar (V2 fore _) cha) -> ColorChar (V2 fore back) cha
+  else id
 
 
 zombieMaster :: IO ()
@@ -428,7 +430,7 @@ zombieMaster = withColor setColor24bit
       liftIO $ putStr "next player is: "
       liftIO $ print nextPlayer
       line <- liftIO $ getLine
-      maybe (liftIO $ print WrongFormat) (uncurry advanceZombie)
+      maybe (liftIO $ print WrongFormat) (advanceZombie . tupleV2)
         $ listToMaybe $ fmap fst $ (reads :: ReadS (Int, Int)) line
 
 
