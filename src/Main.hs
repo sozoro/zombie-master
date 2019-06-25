@@ -238,85 +238,16 @@ modifyViaSubList ps f m = fmap (foldr id m)
   $ fmap . zipWith (flip M.setElem) <*> f . fmap (m M.!)
   $ v2Tuple <$> ps
 
-modifyTo' :: Functor f => Clockwise -> Pos -> ([a] -> f [a])
-          -> M.Matrix a -> f (M.Matrix a)
-modifyTo' d p f m = modifyViaSubList ps f m
-  where
-    ps = takeWhile inRange $ iterate (+ dirVec d) p
-    inRange (V2 r c)
-      = 1 <= r && r <= M.nrows m && 1 <= c && c <= M.ncols m
-
-modifyL :: Monad m
-        => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
-modifyL x y f = do
-  m  <- get
-  let fixed = downer (M.nrows m) y
-  ls <- lift $ f $ catMaybes $ map (\y' -> M.safeGet x y' m)
-                             $ enumToFrom fixed 1
-  put $ M.matrix (M.nrows m) (M.ncols m) $ \(r,c) ->
-    maybe (M.unsafeGet r c m) id
-    $ guard (r == x) >> ls `safeIx` (fixed - c)
-
-modifyU :: Monad m
-        => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
-modifyU x y f = do
-  m  <- get
-  let fixed = downer (M.ncols m) x
-  ls <- lift $ f $ catMaybes $ map (\x' -> M.safeGet x' y m)
-                             $ enumToFrom fixed 1
-  put $ M.matrix (M.nrows m) (M.ncols m) $ \(r,c) ->
-    maybe (M.unsafeGet r c m) id
-    $ guard (c == y) >> ls `safeIx` (fixed - r)
-
-modifyR :: Monad m
-        => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
-modifyR x y f = do
-  m  <- get
-  let fixed = upper 1 y
-  ls <- lift $ f $ catMaybes $ map (\y' -> M.safeGet x y' m)
-                             $ enumFromTo fixed (M.nrows m)
-  put $ M.matrix (M.nrows m) (M.ncols m) $ \(r,c) ->
-    maybe (M.unsafeGet r c m) id
-    $ guard (r == x) >> ls `safeIx` (c - fixed)
-
-modifyD :: Monad m
-        => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
-modifyD x y f = do
-  m  <- get
-  let fixed = upper 1 x
-  ls <- lift $ f $ catMaybes $ map (\x' -> M.safeGet x' y m)
-                             $ enumFromTo fixed (M.ncols m)
-  put $ M.matrix (M.nrows m) (M.ncols m) $ \(r,c) ->
-    maybe (M.unsafeGet r c m) id
-    $ guard (c == y) >> ls `safeIx` (r - fixed)
-
-modifyLURD :: Monad m
-           => Int -> Int -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
-modifyLURD y x f = do
-  modifyL y x f
-  modifyU y x f
-  modifyR y x f
-  modifyD y x f
-
-modifyTo :: Monad m
-         => Clockwise -> Int -> Int -> ([a] -> m [a])
+modifyTo :: Monad m => Clockwise -> Pos -> ([a] -> m [a])
          -> StateT (M.Matrix a) m ()
-modifyTo L = modifyL
-modifyTo U = modifyU
-modifyTo R = modifyR
-modifyTo D = modifyD
+modifyTo d p f = StateT $ \m -> do
+  let inRange (V2 r c) =  1 <= r && r <= M.nrows m
+                       && 1 <= c && c <= M.ncols m
+      ps = takeWhile inRange $ iterate (+ dirVec d) p
+  ((),) <$> modifyViaSubList ps f m
 
-downer :: Ord a => a -> a -> a
-downer a b = if a <= b then a else b
-
-upper :: Ord a => a -> a -> a
-upper a b = if a >= b then a else b
-
-enumToFrom :: Enum a => a -> a -> [a]
-enumToFrom a = enumFromThenTo a $ pred a
-
-safeIx :: [a] -> Int -> Maybe a
-safeIx ls i = guard (i >= 0) >> listToMaybe (drop i ls)
+allDirs :: Monad m => Pos -> ([a] -> m [a]) -> StateT (M.Matrix a) m ()
+allDirs p f = forM_ [minBound..maxBound] $ \d -> modifyTo d p f
 
 printState :: (MonadIO m, Show r) => StateT r m ()
 printState = get >>= liftIO . print
@@ -392,7 +323,7 @@ advanceZombie y x = checkZombie y x >>= \case
          then liftIO $ print NotYourZombie
          else do
            let newPos = (y, x) `forward` d
-           zombiesState $ modifyTo d y x $ \case
+           zombiesState $ modifyTo d (V2 y x) $ \case
              (z:e:xs) -> return (e:z:xs)
              _        -> return []
            zombiesState $ uncurry rule newPos
@@ -418,7 +349,7 @@ mapHead f (x:xs) = f x : xs
 
 rule :: Monad m
      => Int -> Int -> StateT (M.Matrix Zombie) m ()
-rule y x = modifyLURD y x $ \case
+rule y x = allDirs (V2 y x) $ \case
   (a@(Zombie _ _):as) -> let (space, remaining) = break isZombie as
                              f b = if a `isEnemyOf` b then turnZombie b else b
                          in return $ a : (space ++ mapHead f remaining)
@@ -505,11 +436,12 @@ zombieMaster = withColor setColor24bit
 
 
 main :: IO ()
--- main = zombieMaster
-main = do
-  m <- modifyTo' D (V2 1 2) (return . ($> True)) $ fill False 2 3
-  print m
+main = zombieMaster
 {-
+main = do
+  -- m <- runStateT (modifyTo D (V2 1 2) $ return . ($> True)) $ fill False 2 3
+  m <- execStateT (allDirs (V2 2 2) $ return . const [1..]) $ fill 0 3 4
+  print m
 main = withColor setColor24bit $ do
   initMatrix <- liftIO $ initialMatrix 8 10
   let colorMatrix = fmap colorShow initMatrix
