@@ -49,10 +49,11 @@ import Control.Monad.State.Strict
 import Control.Monad.Writer.Lazy
 import Data.Foldable (asum,elem)
 import Data.Maybe    (maybeToList)
-import qualified Control.Exception    as E
-import qualified Data.Colour.SRGB     as C
-import qualified Data.Colour.RGBSpace as C
-import qualified System.Console.ANSI  as A
+import qualified Control.Exception         as E
+import qualified Data.Colour.SRGB          as C
+import qualified Data.Colour.RGBSpace      as C
+import qualified System.Console.ANSI       as A
+import qualified System.Console.ANSI.Types as A
 
 data V2 a = V2 { v2x :: !a , v2y :: !a } deriving (Show, Eq)
 instance Functor V2 where
