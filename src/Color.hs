@@ -47,7 +47,6 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Writer.Lazy
-import Data.Foldable (asum,elem)
 import Data.Maybe    (maybeToList)
 import qualified Control.Exception    as E
 import qualified Data.Colour.SRGB     as C

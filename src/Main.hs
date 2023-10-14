@@ -5,6 +5,8 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 -- {-# LANGUAGE ViewPatterns #-}
 
 module Main where
@@ -20,6 +22,7 @@ import Data.Functor
 import Data.List (sort,nub)
 import Data.Maybe (listToMaybe,maybeToList,catMaybes,fromMaybe)
 import Data.Typeable (Typeable)
+import GHC.Generics (Generic)
 import qualified Control.Exception         as E
 import qualified Data.Colour.SRGB          as C
 import qualified Data.Matrix               as M
@@ -28,7 +31,7 @@ import qualified System.Console.ANSI       as A
 import qualified System.Console.ANSI.Types as A
 import qualified System.Random.MWC         as R
 
-data Clockwise = L | U | R | D deriving (Eq, Enum, Bounded, Ord)
+data Clockwise = L | U | R | D deriving (Eq, Enum, Bounded, Ord, Generic, R.Uniform)
 instance Cyclic Clockwise where
 instance Show   Clockwise where
   show L = "←"
